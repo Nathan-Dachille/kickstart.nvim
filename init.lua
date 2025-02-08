@@ -515,23 +515,6 @@ require('lazy').setup({
         end,
       })
 
-      -- Change diagnostic symbols in the sign column (gutter)
-      if vim.g.have_nerd_font then
-        local signs = { ERROR = '', WARN = '', INFO = '', HINT = '' }
-        local diagnostic_signs = {}
-        for type, icon in pairs(signs) do
-          diagnostic_signs[vim.diagnostic.severity[type]] = icon
-        end
-        vim.diagnostic.config { signs = { text = diagnostic_signs } }
-      end
-
-      -- LSP servers and clients are able to communicate to each other what features they support.
-      --  By default, Neovim doesn't support everything that is in the LSP specification.
-      --  When you add nvim-cmp, luasnip, etc. Neovim now has *more* capabilities.
-      --  So, we create new capabilities with nvim cmp, and then broadcast that to the servers.
-      local capabilities = vim.lsp.protocol.make_client_capabilities()
-      capabilities = vim.tbl_deep_extend('force', capabilities, require('cmp_nvim_lsp').default_capabilities())
-
       -- Enable the following language servers
       --  Feel free to add/remove any LSPs that you want here. They will automatically be installed.
       --  See `:help lsp-config` for information about keys and how to configure
@@ -650,7 +633,13 @@ require('lazy').setup({
       },
     },
   },
-
+  {
+    'lervag/vimtex',
+    lazy = false,
+    init = function()
+      vim.g.vimtex_view_method = 'zathura'
+    end,
+  },
   { -- Autocompletion
     'saghen/blink.cmp',
     event = 'VimEnter',
@@ -891,7 +880,11 @@ require('lazy').setup({
   -- require 'kickstart.plugins.lint',
   -- require 'kickstart.plugins.autopairs',
   -- require 'kickstart.plugins.neo-tree',
+<<<<<<< HEAD
   -- require 'kickstart.plugins.gitsigns', -- adds gitsigns recommended keymaps
+=======
+  require 'kickstart.plugins.gitsigns', -- adds gitsigns recommend keymaps
+>>>>>>> 72a658e (Add vimtex plugin)
 
   -- NOTE: The import below can automatically add your own plugins, configuration, etc from `lua/custom/plugins/*.lua`
   --    This is the easiest way to modularize your config.
