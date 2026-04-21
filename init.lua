@@ -532,6 +532,14 @@ require('lazy').setup({
         --
         -- But for many setups, the LSP (`ts_ls`) will work just fine
         -- ts_ls = {},
+        --
+        ltex_plus = {
+          settings = {
+            ltex = {
+              language = 'en-AU',
+            },
+          },
+        },
 
         stylua = {}, -- Used to format Lua code
 
@@ -642,14 +650,9 @@ require('lazy').setup({
   {
     'R-nvim/R.nvim',
     lazy = false,
-    version = '~0.1.0',
+    version = '~0.99.0',
     opts = {
       R_args = { '--quiet', '--no-save' },
-      hook = {
-        on_filetype = function()
-          vim.keymap.del('i', '<space>,', { buffer = 0 })
-        end,
-      },
     },
   },
 
