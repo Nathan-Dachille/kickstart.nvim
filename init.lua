@@ -576,6 +576,8 @@ require('lazy').setup({
                 environments = {
                   ['itemize'] = 'ignore',
                   ['minted'] = 'ignore',
+                  ['table'] = 'ignore',
+                  ['figure'] = 'ignore',
                 },
                 commands = {},
               },
