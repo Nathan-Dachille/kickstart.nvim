@@ -91,7 +91,7 @@ vim.diagnostic.config {
   update_in_insert = false,
   severity_sort = true,
   float = { border = 'rounded', source = 'if_many' },
-  underline = { severity = { min = vim.diagnostic.severity.WARN } },
+  underline = { severity = { min = vim.diagnostic.severity.INFO } },
 
   -- Can switch between these as you prefer
   virtual_text = true, -- Text shows up at the end of the line
@@ -535,8 +535,50 @@ require('lazy').setup({
         --
         ltex_plus = {
           settings = {
+            underline = true,
             ltex = {
               language = 'en-AU',
+              additionalRules = {
+                enablePickyRules = true,
+              },
+              enabledRules = {
+                ['en-AU'] = {
+                  'IT_IS_OBVIOUS',
+                  'READABILITY_RULE_SIMPLE',
+                  'READABILITY_RULE_DIFFICULT',
+                  'WIKIPEDIA_CONTRACTIONS',
+                },
+              },
+              enabled = {
+                'asciidoc',
+                'bib',
+                'context',
+                'gitcommit',
+                'html',
+                'markdown',
+                'org',
+                'pandoc',
+                'plaintex',
+                'quarto',
+                'mail',
+                'mdx',
+                'rmd',
+                'rnoweb',
+                'rst',
+                'tex',
+                'latex',
+                'text',
+                'typst',
+                'xhtml',
+              },
+              completionEnabled = true,
+              latex = {
+                environments = {
+                  ['itemize'] = 'ignore',
+                  ['minted'] = 'ignore',
+                },
+                commands = {},
+              },
             },
           },
         },
@@ -774,7 +816,7 @@ require('lazy').setup({
     ---@module 'todo-comments'
     ---@type TodoOptions
     ---@diagnostic disable-next-line: missing-fields
-    opts = { signs = false },
+    opts = { signs = true },
   },
 
   { -- Collection of various small independent plugins/modules
