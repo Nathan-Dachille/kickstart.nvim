@@ -1023,9 +1023,23 @@ require('lazy').setup({
       local servers = {
         clangd = {},
         -- gopls = {},
-        -- pyright = {},
+        pyright = {},
         rust_analyzer = {},
-        ruff = {},
+        ruff = {
+          settings = {
+            lineLength = 120,
+            organizeImports = true,
+            showSyntaxErrors = true,
+            logLevel = 'info',
+            fixAll = true,
+            codeAction = {
+              lint = {
+                enable = true,
+                preview = true,
+              },
+            },
+          },
+        },
         -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
         --
         -- Some languages (like typescript) have entire language plugins that can be useful:
@@ -1218,7 +1232,7 @@ require('lazy').setup({
   { -- Autocompletion
     'saghen/blink.cmp',
     event = 'VimEnter',
-    version = '1.*',
+    version = '2.*',
     dependencies = {
       -- Snippet Engine
       {
@@ -1250,7 +1264,16 @@ require('lazy').setup({
           },
         },
       },
+      {
+        'saghen/blink.lib',
+      },
     },
+    build = function()
+      -- build the fuzzy matcher, wait up to 60 seconds
+      -- you can use `gb` in `:Lazy` to rebuild the plugin as needed
+      require('blink.cmp').build():wait(60000)
+    end,
+
     ---@module 'blink.cmp'
     ---@type blink.cmp.Config
     opts = {
@@ -1292,6 +1315,7 @@ require('lazy').setup({
         -- By default, you may press `<c-space>` to show the documentation.
         -- Optionally, set `auto_show = true` to show the documentation after a delay.
         documentation = { auto_show = true, auto_show_delay_ms = 500 },
+        ghost_text = { enabled = true },
       },
 
       sources = {
