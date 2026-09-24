@@ -144,6 +144,15 @@ vim.api.nvim_create_autocmd('TextYankPost', {
   callback = function() vim.hl.on_yank() end,
 })
 
+-- Set wrap when editing LaTeX.
+local group = vim.api.nvim_create_augroup('LaTeX Wrap', { clear = true })
+
+vim.api.nvim_create_autocmd('BufEnter', {
+  pattern = { '*.tex' },
+  group = group,
+  command = 'setlocal textwidth=100 | setlocal colorcolumn=101 | setlocal wrap',
+})
+
 -- [[ Install `lazy.nvim` plugin manager ]]
 --    See `:help lazy.nvim.txt` or https://github.com/folke/lazy.nvim for more info
 local lazypath = vim.fn.stdpath 'data' .. '/lazy/lazy.nvim'
@@ -205,6 +214,9 @@ require('lazy').setup({
 
   { 'ThePrimeagen/vim-be-good' },
 
+  -- Handle the dictionary for ltex.
+  { 'barreiroleo/ltex-extra.nvim' },
+
   -- NOTE: Plugins can also be configured to run Lua code when they are loaded.
   --
   -- This is often very useful to both group configuration, as well as handle
@@ -234,7 +246,8 @@ require('lazy').setup({
       spec = {
         { '<leader>s', group = '[S]earch', mode = { 'n', 'v' } },
         { '<leader>c', group = '[C]ode', mode = { 'n', 'x' } },
-        { '<leader>d', group = '[D]ocument' },
+        { '<leader>d', group = '[D]ebug' },
+        { '<leader>dt', group = '[T]est' },
         { '<leader>r', group = '[R]ename' },
         { '<leader>w', group = '[W]orkspace' },
         { '<leader>t', group = '[T]oggle' },
@@ -242,7 +255,7 @@ require('lazy').setup({
         { 'gr', group = 'LSP Actions', mode = { 'n' } },
         { -- VimTex Keybinds
           '<localleader>l',
-          group = 'VimTeX',
+          group = '[L]aTeX',
           icon = { icon = '', color = 'green' },
           mode = 'nx',
         },
@@ -1023,7 +1036,19 @@ require('lazy').setup({
       local servers = {
         clangd = {},
         -- gopls = {},
-        pyright = {},
+        basedpyright = {
+          settings = {
+            basedpyright = {
+              analysis = {
+                typeCheckingMode = 'recommended',
+                diagnosticMode = 'workspace',
+                inlayHints = {
+                  callArgumentNames = true,
+                },
+              },
+            },
+          },
+        },
         rust_analyzer = {},
         ruff = {
           settings = {
@@ -1049,6 +1074,16 @@ require('lazy').setup({
         -- ts_ls = {},
         --
         ltex_plus = {
+          on_attach = function(client, bufnr)
+            -- rest of your on_attach process.
+            require('ltex_extra').setup {
+              load_langs = { 'en-AU' },
+              init_check = true,
+              path = '.ltex',
+              log_level = 'none',
+              server_opts = nil,
+            }
+          end,
           settings = {
             underline = true,
             ltex = {
@@ -1158,6 +1193,118 @@ require('lazy').setup({
     end,
   },
 
+  {
+    'rcarriga/nvim-dap-ui',
+    config = true,
+    dependencies = {
+      'jay-babu/mason-nvim-dap.nvim',
+      'nvim-neotest/neotest-python',
+      'nvim-neotest/nvim-nio',
+      'theHamsta/nvim-dap-virtual-text',
+    },
+    -- stylua: ignore
+    keys = {
+      { "<leader>du", function() require("dapui").toggle({ }) end, desc = "Dap UI" },
+      { "<leader>de", function() require("dapui").eval() end, desc = "Eval", mode = {"n", "x"} },
+    },
+    opts = {},
+  },
+
+  {
+    'mfussenegger/nvim-dap',
+    lazy = true,
+    dependencies = {
+      'rcarriga/nvim-dap-ui',
+      -- virtual text for the debugger
+      {
+        'theHamsta/nvim-dap-virtual-text',
+        opts = {},
+      },
+    },
+
+    -- stylua: ignore
+    keys = {
+      { '<leader>dB', function() require('dap').set_breakpoint(vim.fn.input 'Breakpoint condition: ') end, desc = 'Breakpoint Condition' },
+      { '<leader>db', function() require('dap').toggle_breakpoint() end, desc = 'Toggle Breakpoint' },
+      { '<leader>dc', function() require('dap').continue() end, desc = 'Run/Continue' },
+      { '<leader>da', function() require('dap').continue { before = vim } end, desc = 'Run with Args' },
+      { '<leader>dC', function() require('dap').run_to_cursor() end, desc = 'Run to Cursor' },
+      { '<leader>dg', function() require('dap').goto_() end, desc = 'Go to Line (No Execute)' },
+      { '<leader>di', function() require('dap').step_into() end, desc = 'Step Into' },
+      { '<leader>dj', function() require('dap').down() end, desc = 'Down' },
+      { '<leader>dk', function() require('dap').up() end, desc = 'Up' },
+      { '<leader>dl', function() require('dap').run_last() end, desc = 'Run Last' },
+      { '<leader>do', function() require('dap').step_out() end, desc = 'Step Out' },
+      { '<leader>dO', function() require('dap').step_over() end, desc = 'Step Over' },
+      { '<leader>dP', function() require('dap').pause() end, desc = 'Pause' },
+      { '<leader>dr', function() require('dap').repl.toggle() end, desc = 'Toggle REPL' },
+      { '<leader>ds', function() require('dap').session() end, desc = 'Session' },
+      { '<leader>dx', function() require('dap').terminate() end, desc = 'Terminate' },
+      { '<leader>dw', function() require('dap.ui.widgets').hover() end, desc = 'Widgets' },
+    },
+  },
+
+  {
+    'jay-babu/mason-nvim-dap.nvim',
+    dependencies = {
+      'mason.nvim',
+      'mfussenegger/nvim-dap',
+    },
+    cmd = { 'DapInstall', 'DapUninstall' },
+    opts = {
+      -- Makes a best effort to setup the various debuggers with
+      -- reasonable debug configurations
+      automatic_installation = true,
+
+      -- You can provide additional configuration to the handlers,
+      -- see mason-nvim-dap README for more information
+      handlers = {},
+
+      -- You'll need to check that you have the required things installed
+      -- online, please don't ask me how to install them :)
+      ensure_installed = {
+        'bash',
+        'codelldb',
+        'python',
+        -- Update this to ensure that you have the debuggers for the langs you want
+      },
+    },
+    -- mason-nvim-dap is loaded when nvim-dap loads
+    config = function() end,
+  },
+
+  {
+    'nvim-neotest/neotest',
+    lazy = false,
+    dependencies = {
+      'nvim-lua/plenary.nvim',
+      'nvim-neotest/nvim-nio',
+      'nvim-treesitter/nvim-treesitter',
+      'nvim-neotest/neotest-python',
+    },
+    -- stylua ignore
+    keys = {
+      { '<leader>dtt', function() require('neotest').run.run() end, desc = 'Run Nearest Test' },
+      { '<leader>dtf', function() require('neotest').run.run(vim.fn.expand '%') end, desc = 'Run Current File' },
+      { '<leader>dta', function() require('neotest').run.run(vim.fn.getcwd()) end, desc = 'Run Test Suite' },
+      { '<leader>dts', function() require('neotest').summary.toggle() end, desc = 'Toggle Summary' },
+      { '<leader>dto', function() require('neotest').output.open { enter = true } end, desc = 'Show Test Output' },
+    },
+    config = function()
+      ---@diagnostic disable-next-line: missing-fields
+      require('neotest').setup {
+        adapters = {
+          require 'neotest-python' {
+            dap = { justMyCode = false },
+            args = { '--log-level', 'DEBUG' },
+            runner = 'pytest',
+            pytest_discover_instances = true,
+          },
+        },
+      }
+    end,
+  },
+
   { -- Autoformat
     'stevearc/conform.nvim',
     event = { 'BufWritePre' },
@@ -1200,6 +1347,7 @@ require('lazy').setup({
       },
     },
   },
+
   {
     'lervag/vimtex',
     lazy = false,
@@ -1271,7 +1419,7 @@ require('lazy').setup({
     build = function()
       -- build the fuzzy matcher, wait up to 60 seconds
       -- you can use `gb` in `:Lazy` to rebuild the plugin as needed
-      require('blink.cmp').build():wait(60000)
+      require('blink.cmp').build():pwait()
     end,
 
     ---@module 'blink.cmp'
@@ -1321,6 +1469,43 @@ require('lazy').setup({
       sources = {
         default = { 'lsp', 'path', 'snippets', 'buffer', 'vimtex' },
         providers = {
+          lsp = {
+            name = 'lsp',
+            enabled = true,
+            module = 'blink.cmp.sources.lsp',
+            kind = 'LSP',
+            min_keyword_length = 3,
+            score_offset = 90,
+          },
+          path = {
+            name = 'Path',
+            module = 'blink.cmp.sources.path',
+            score_offset = 25,
+            fallbacks = { 'snippets', 'buffer' },
+            min_keyword_length = 2,
+            opts = {
+              trailing_slash = false,
+              label_trailing_slash = true,
+              get_cwd = function(context) return vim.fn.expand(('#%d:p:h'):format(context.bufnr)) end,
+              show_hidden_files_by_default = true,
+            },
+          },
+          buffer = {
+            name = 'Buffer',
+            enabled = true,
+            max_items = 3,
+            module = 'blink.cmp.sources.buffer',
+            min_keyword_length = 2,
+            score_offset = 15, -- the higher the number, the higher the priority
+          },
+          snippets = {
+            name = 'snippets',
+            enabled = true,
+            max_items = 15,
+            min_keyword_length = 2,
+            module = 'blink.cmp.sources.snippets',
+            score_offset = 85, -- the higher the number, the higher the priority
+          },
           vimtex = {
             name = 'vimtex',
             min_keyword_length = 2,
@@ -1351,20 +1536,36 @@ require('lazy').setup({
     -- change the command in the config to whatever the name of that colorscheme is.
     --
     -- If you want to see what colorschemes are already installed, you can use `:Telescope colorscheme`.
-    'folke/tokyonight.nvim',
+    'catppuccin/nvim',
     priority = 1000, -- Make sure to load this before all the other start plugins.
     config = function()
       ---@diagnostic disable-next-line: missing-fields
-      require('tokyonight').setup {
-        styles = {
-          comments = { italic = false }, -- Disable italics in comments
+      require('catppuccin').setup {
+        flavour = 'mocha',
+        dim_inactive = {
+          enabled = true,
+          shade = 'dark',
+          percentage = 0.15,
         },
+        styles = {
+          comments = { 'italic' },
+          conditionals = { 'italic' },
+          loops = {},
+          functions = {},
+          keywords = {},
+          strings = {},
+          variables = {},
+          numbers = {},
+          booleans = {},
+          properties = {},
+          types = {},
+          operators = {},
+          miscs = {},
+        },
+        auto_integrations = true,
       }
 
-      -- Load the colorscheme here.
-      -- Like many other themes, this one has different styles, and you could load
-      -- any other, such as 'tokyonight-storm', 'tokyonight-moon', or 'tokyonight-day'.
-      vim.cmd.colorscheme 'tokyonight-night'
+      vim.cmd.colorscheme 'catppuccin-nvim'
     end,
   },
 
