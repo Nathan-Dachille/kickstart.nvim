@@ -153,1534 +153,1297 @@ vim.api.nvim_create_autocmd('BufEnter', {
   command = 'setlocal textwidth=100 | setlocal colorcolumn=101 | setlocal wrap',
 })
 
--- [[ Install `lazy.nvim` plugin manager ]]
---    See `:help lazy.nvim.txt` or https://github.com/folke/lazy.nvim for more info
-local lazypath = vim.fn.stdpath 'data' .. '/lazy/lazy.nvim'
-if not (vim.uv or vim.loop).fs_stat(lazypath) then
-  local lazyrepo = 'https://github.com/folke/lazy.nvim.git'
-  local out = vim.fn.system { 'git', 'clone', '--filter=blob:none', '--branch=stable', lazyrepo, lazypath }
-  if vim.v.shell_error ~= 0 then error('Error cloning lazy.nvim:\n' .. out) end
+-- [[ vim.pack ]]
+do
+  local function run_build(name, cmd, cwd)
+    local result = vim.system(cmd, { cwd = cwd }):wait()
+    if result.code ~= 0 then
+      local stderr = result.stderr or ''
+      local stdout = result.stdout or ''
+      local output = stderr ~= '' and stderr or stdout
+      if output == '' then output = 'No output from build command.' end
+      vim.notify(('Build failed for %s:\n%s'):format(name, output), vim.log.levels.ERROR)
+    end
+  end
+
+  vim.api.nvim_create_autocmd('PackChanged', {
+    callback = function(ev)
+      local name = ev.data.spec.name
+      local kind = ev.data.kind
+      if kind ~= 'install' and kind ~= 'update' then return end
+
+      if name == 'telescope-fzf-native.nvim' and vim.fn.executable 'make' == 1 then
+        run_build(name, { 'make' }, ev.data.path)
+        return
+      end
+
+      if name == 'LuaSnip' then
+        if vim.fn.has 'win32' ~= 1 and vim.fn.executable 'make' == 1 then run_build(name, { 'make', 'install_jsregexp' }, ev.data.path) end
+        return
+      end
+
+      if name == 'nvim-treesitter' then
+        if not ev.data.active then vim.cmd.packadd 'nvim-treesitter' end
+        vim.cmd 'TSUpdate'
+        return
+      end
+    end,
+  })
 end
 
----@type vim.Option
-local rtp = vim.opt.rtp
-rtp:prepend(lazypath)
+---@param repo string
+---@return string
+local function gh(repo) return 'https://github.com/' .. repo end
 
--- [[ Configure and install plugins ]]
---
---  To check the current status of your plugins, run
---    :Lazy
---
---  You can press `?` in this menu for help. Use `:q` to close the window
---
---  To update plugins you can run
---    :Lazy update
---
--- NOTE: Here is where you install your plugins.
-require('lazy').setup({
+do
   -- NOTE: Plugins can be added via a link or github org/name. To run setup automatically, use `opts = {}`
-  { 'NMAC427/guess-indent.nvim', opts = {} },
+  vim.pack.add { gh 'NMAC427/guess-indent.nvim' }
+  require('guess-indent').setup {}
 
-  -- Alternatively, use `config = function() ... end` for full control over the configuration.
-  -- If you prefer to call `setup` explicitly, use:
-  --    {
-  --        'lewis6991/gitsigns.nvim',
-  --        config = function()
-  --            require('gitsigns').setup({
-  --                -- Your gitsigns configuration here
-  --            })
-  --        end,
-  --    }
-  --
-  -- Here is a more advanced example where we pass configuration
-  -- options to `gitsigns.nvim`.
-  --
-  -- See `:help gitsigns` to understand what the configuration keys do
-  { -- Adds git related signs to the gutter, as well as utilities for managing changes
-    'lewis6991/gitsigns.nvim',
-    ---@module 'gitsigns'
-    ---@type Gitsigns.Config
-    ---@diagnostic disable-next-line: missing-fields
-    opts = {
-      signs = {
-        add = { text = '+' }, ---@diagnostic disable-line: missing-fields
-        change = { text = '~' }, ---@diagnostic disable-line: missing-fields
-        delete = { text = '_' }, ---@diagnostic disable-line: missing-fields
-        topdelete = { text = '‾' }, ---@diagnostic disable-line: missing-fields
-        changedelete = { text = '~' }, ---@diagnostic disable-line: missing-fields
-      },
+  -- Adds git related signs to the gutter, as well as utilities for managing changes
+  vim.pack.add { gh 'lewis6991/gitsigns.nvim' }
+  local gitsigns = require 'gitsigns'
+  gitsigns.setup {
+    signs = {
+      add = { text = '+' }, ---@diagnostic disable-line: missing-fields
+      change = { text = '~' }, ---@diagnostic disable-line: missing-fields
+      delete = { text = '_' }, ---@diagnostic disable-line: missing-fields
+      topdelete = { text = '‾' }, ---@diagnostic disable-line: missing-fields
+      changedelete = { text = '~' }, ---@diagnostic disable-line: missing-fields
     },
-  },
 
-  { 'ThePrimeagen/vim-be-good' },
+    -- gitsigns.nvim's recommended keymaps:
+    on_attach = function(bufnr)
+      -- Navigation
+      vim.keymap.set('n', ']c', function()
+        if vim.wo.diff then
+          vim.cmd.normal { ']c', bang = true }
+        else
+          gitsigns.nav_hunk 'next'
+        end
+      end, { desc = 'Jump to next git [c]hange', buf = bufnr })
 
-  -- Handle the dictionary for ltex.
-  { 'barreiroleo/ltex-extra.nvim' },
+      vim.keymap.set('n', '[c', function()
+        if vim.wo.diff then
+          vim.cmd.normal { '[c', bang = true }
+        else
+          gitsigns.nav_hunk 'prev'
+        end
+      end, { desc = 'Jump to previous git [c]hange', buf = bufnr })
 
-  -- NOTE: Plugins can also be configured to run Lua code when they are loaded.
-  --
-  -- This is often very useful to both group configuration, as well as handle
-  -- lazy loading plugins that don't need to be loaded immediately at startup.
-  --
-  -- For example, in the following configuration, we use:
-  --  event = 'VimEnter'
-  --
-  -- which loads which-key before all the UI elements are loaded. Events can be
-  -- normal autocommands events (`:help autocmd-events`).
-  --
-  -- Then, because we use the `opts` key (recommended), the configuration runs
-  -- after the plugin has been loaded as `require(MODULE).setup(opts)`.
+      -- Visual mode actions
+      vim.keymap.set('v', '<leader>hs', function() gitsigns.stage_hunk { vim.fn.line '.', vim.fn.line 'v' } end, { desc = 'git [s]tage hunk', buf = bufnr })
+      vim.keymap.set('v', '<leader>hr', function() gitsigns.reset_hunk { vim.fn.line '.', vim.fn.line 'v' } end, { desc = 'git [r]eset hunk', buf = bufnr })
+      -- Normal mode actions
+      vim.keymap.set('n', '<leader>hs', gitsigns.stage_hunk, { desc = 'git [s]tage hunk', buf = bufnr })
+      vim.keymap.set('n', '<leader>hr', gitsigns.reset_hunk, { desc = 'git [r]eset hunk', buf = bufnr })
+      vim.keymap.set('n', '<leader>hS', gitsigns.stage_buffer, { desc = 'git [S]tage buffer', buf = bufnr })
+      vim.keymap.set('n', '<leader>hR', gitsigns.reset_buffer, { desc = 'git [R]eset buffer', buf = bufnr })
+      vim.keymap.set('n', '<leader>hp', gitsigns.preview_hunk, { desc = 'git [p]review hunk', buf = bufnr })
+      vim.keymap.set('n', '<leader>hi', gitsigns.preview_hunk_inline, { desc = 'git preview hunk [i]nline', buf = bufnr })
+      vim.keymap.set('n', '<leader>hb', function() gitsigns.blame_line { full = true } end, { desc = 'git [b]lame line', buf = bufnr })
+      vim.keymap.set('n', '<leader>hd', gitsigns.diffthis, { desc = 'git [d]iff against index', buf = bufnr })
+      vim.keymap.set('n', '<leader>hD', function() gitsigns.diffthis '~' end, { desc = 'git [D]iff against last commit', buf = bufnr })
+      vim.keymap.set('n', '<leader>hQ', function() gitsigns.setqflist 'all' end, { desc = 'git hunk [Q]uickfix list (all files in repo)', buf = bufnr })
+      vim.keymap.set('n', '<leader>hq', gitsigns.setqflist, { desc = 'git hunk [q]uickfix list (all changes in this file)', buf = bufnr })
+      -- Toggles
+      vim.keymap.set('n', '<leader>tb', gitsigns.toggle_current_line_blame, { desc = '[T]oggle git show [b]lame line', buf = bufnr })
+      vim.keymap.set('n', '<leader>tw', gitsigns.toggle_word_diff, { desc = '[T]oggle git intra-line [w]ord diff', buf = bufnr })
+      -- Text object
+      vim.keymap.set({ 'o', 'x' }, 'ih', gitsigns.select_hunk, { desc = 'text object [i]nside [h]unk', buf = bufnr })
+    end,
+  }
 
-  { -- Useful plugin to show you pending keybinds.
-    'folke/which-key.nvim',
-    event = 'VimEnter',
-    ---@module 'which-key'
-    ---@type wk.Opts
-    ---@diagnostic disable-next-line: missing-fields
-    opts = {
-      -- delay between pressing a key and opening which-key (milliseconds)
-      delay = 0,
-      icons = { mappings = vim.g.have_nerd_font },
+  vim.pack.add { gh 'ThePrimeagen/vim-be-good' }
+  require('vim-be-good')
 
-      -- Document existing key chains
-      spec = {
-        { '<leader>s', group = '[S]earch', mode = { 'n', 'v' } },
-        { '<leader>c', group = '[C]ode', mode = { 'n', 'x' } },
-        { '<leader>d', group = '[D]ebug' },
-        { '<leader>dt', group = '[T]est' },
-        { '<leader>r', group = '[R]ename' },
-        { '<leader>w', group = '[W]orkspace' },
-        { '<leader>t', group = '[T]oggle' },
-        { '<leader>h', group = 'Git [H]unk', mode = { 'n', 'v' } }, -- Enable gitsigns recommended keymaps first
-        { 'gr', group = 'LSP Actions', mode = { 'n' } },
-        { -- VimTex Keybinds
-          '<localleader>l',
-          group = '[L]aTeX',
-          icon = { icon = '', color = 'green' },
+
+  vim.pack.add { gh 'folke/which-key.nvim' }
+  require('which-key').setup {
+    -- delay between pressing a key and opening which-key (milliseconds)
+    delay = 0,
+    icons = { mappings = vim.g.have_nerd_font },
+
+    -- Document existing key chains
+    spec = {
+      { '<leader>s', group = '[S]earch', mode = { 'n', 'v' } },
+      { '<leader>c', group = '[C]ode', mode = { 'n', 'x' } },
+      { '<leader>d', group = '[D]ebug' },
+      { '<leader>dt', group = '[T]est' },
+      { '<leader>r', group = '[R]ename' },
+      { '<leader>w', group = '[W]orkspace' },
+      { '<leader>t', group = '[T]oggle' },
+      { '<leader>h', group = 'Git [H]unk', mode = { 'n', 'v' } }, -- Enable gitsigns recommended keymaps first
+      { 'gr', group = 'LSP Actions', mode = { 'n' } },
+      { -- VimTex Keybinds
+        '<localleader>l',
+        group = '[L]aTeX',
+        icon = { icon = '', color = 'green' },
+        mode = 'nx',
+      },
+      {
+        mode = 'n',
+        {
+          '<localleader>ll',
+          '<plug>(vimtex-compile)',
+          desc = 'Compile',
+          icon = { icon = '', color = 'green' },
+        },
+        {
+          '<localleader>lL',
+          '<plug>(vimtex-compile-selected)',
+          desc = 'Compile selected',
+          icon = { icon = '', color = 'green' },
           mode = 'nx',
         },
         {
+          '<localleader>li',
+          '<plug>(vimtex-info)',
+          desc = 'Information',
+          icon = { icon = '', color = 'purple' },
+        },
+        {
+          '<localleader>lI',
+          '<plug>(vimtex-info-full)',
+          desc = 'Full information',
+          icon = { icon = '󰙎', color = 'purple' },
+        },
+        {
+          '<localleader>lt',
+          '<plug>(vimtex-toc-open)',
+          desc = 'Table of Contents',
+          icon = { icon = '󰠶', color = 'purple' },
+        },
+        {
+          '<localleader>lT',
+          '<plug>(vimtex-toc-toggle)',
+          desc = 'Toggle table of Contents',
+          icon = { icon = '󰠶', color = 'purple' },
+        },
+        {
+          '<localleader>lq',
+          '<plug>(vimtex-log)',
+          desc = 'Log',
+          icon = { icon = '', color = 'purple' },
+        },
+        {
+          '<localleader>lv',
+          '<plug>(vimtex-view)',
+          desc = 'View',
+          icon = { icon = '', color = 'green' },
+        },
+        {
+          '<localleader>lr',
+          '<plug>(vimtex-reverse-search)',
+          desc = 'Reverse search',
+          icon = { icon = '', color = 'purple' },
+        },
+        {
+          '<localleader>lk',
+          '<plug>(vimtex-stop)',
+          desc = 'Stop',
+          icon = { icon = '', color = 'red' },
+        },
+        {
+          '<localleader>lK',
+          '<plug>(vimtex-stop-all)',
+          desc = 'Stop all',
+          icon = { icon = '󰓛', color = 'red' },
+        },
+        {
+          '<localleader>le',
+          '<plug>(vimtex-errors)',
+          desc = 'Errors',
+          icon = { icon = '', color = 'red' },
+        },
+        {
+          '<localleader>lo',
+          '<plug>(vimtex-compile-output)',
+          desc = 'Compile output',
+          icon = { icon = '', color = 'purple' },
+        },
+        {
+          '<localleader>lg',
+          '<plug>(vimtex-status)',
+          desc = 'Status',
+          icon = { icon = '󱖫', color = 'purple' },
+        },
+        {
+          '<localleader>lG',
+          '<plug>(vimtex-status-full)',
+          desc = 'Full status',
+          icon = { icon = '󱖫', color = 'purple' },
+        },
+        {
+          '<localleader>lc',
+          '<plug>(vimtex-clean)',
+          desc = 'Clean',
+          icon = { icon = '󰃢', color = 'orange' },
+        },
+        {
+          '<localleader>lh',
+          '<Cmd>VimtexClearCache ALL<cr>',
+          desc = 'Clear all cache',
+          icon = { icon = '󰃢', color = 'grey' },
+        },
+        {
+          '<localleader>lC',
+          '<plug>(vimtex-clean-full)',
+          desc = 'Full clean',
+          icon = { icon = '󰃢', color = 'red' },
+        },
+        {
+          '<localleader>lx',
+          '<plug>(vimtex-reload)',
+          desc = 'Reload',
+          icon = { icon = '󰑓', color = 'green' },
+        },
+        {
+          '<localleader>lX',
+          '<plug>(vimtex-reload-state)',
+          desc = 'Reload state',
+          icon = { icon = '󰑓', color = 'cyan' },
+        },
+        {
+          '<localleader>lm',
+          '<plug>(vimtex-imaps-list)',
+          desc = 'Input mappings',
+          icon = { icon = '', color = 'purple' },
+        },
+        {
+          '<localleader>ls',
+          '<plug>(vimtex-toggle-main)',
+          desc = 'Toggle main',
+          icon = { icon = '󱪚', color = 'green' },
+        },
+        {
+          '<localleader>la',
+          '<plug>(vimtex-context-menu)',
+          desc = 'Context menu',
+          icon = { icon = '󰮫', color = 'purple' },
+        },
+        {
+          'ds',
+          group = '+surrounding',
+          icon = { icon = '󰗅', color = 'green' },
+        },
+        {
+          'dse',
+          '<plug>(vimtex-env-delete)',
+          desc = 'environment',
+          icon = { icon = '', color = 'red' },
+        },
+        {
+          'dsc',
+          '<plug>(vimtex-cmd-delete)',
+          desc = 'command',
+          icon = { icon = '', color = 'red' },
+        },
+        {
+          'ds$',
+          '<plug>(vimtex-env-delete-math)',
+          desc = 'math',
+          icon = { icon = '󰿈', color = 'red' },
+        },
+        {
+          'dsd',
+          '<plug>(vimtex-delim-delete)',
+          desc = 'delimiter',
+          icon = { icon = '󰅩', color = 'red' },
+        },
+        {
+          'cs',
+          group = '+surrounding',
+          icon = { icon = '󰗅', color = 'green' },
+        },
+        {
+          'cse',
+          '<plug>(vimtex-env-change)',
+          desc = 'environment',
+          icon = { icon = '', color = 'blue' },
+        },
+        {
+          'csc',
+          '<plug>(vimtex-cmd-change)',
+          desc = 'command',
+          icon = { icon = '', color = 'blue' },
+        },
+        {
+          'cs$',
+          '<plug>(vimtex-env-change-math)',
+          desc = 'math environment',
+          icon = { icon = '󰿈', color = 'blue' },
+        },
+        {
+          'csd',
+          '<plug>(vimtex-delim-change-math)',
+          desc = 'delimiter',
+          icon = { icon = '󰅩', color = 'blue' },
+        },
+        {
+          'ts',
+          group = '+surrounding',
+          icon = { icon = '󰗅', color = 'green' },
+          mode = 'nx',
+        },
+        {
+          'tsf',
+          '<plug>(vimtex-cmd-toggle-frac)',
+          desc = 'fraction',
+          icon = { icon = '󱦒', color = 'yellow' },
+          mode = 'nx',
+        },
+        {
+          'tsc',
+          '<plug>(vimtex-cmd-toggle-star)',
+          desc = 'command',
+          icon = { icon = '', color = 'yellow' },
+        },
+        {
+          'tse',
+          '<plug>(vimtex-env-toggle-star)',
+          desc = 'environment',
+          icon = { icon = '', color = 'yellow' },
+        },
+        {
+          'ts$',
+          '<plug>(vimtex-env-toggle-math)',
+          desc = 'math environment',
+          icon = { icon = '󰿈', color = 'yellow' },
+        },
+        {
+          'tsb',
+          '<plug>(vimtex-env-toggle-break)',
+          desc = 'break',
+          icon = { icon = '󰿈', color = 'yellow' },
+        },
+        {
+          '<F6>',
+          '<plug>(vimtex-env-surround-line)',
+          desc = 'Surround line with environment',
+          icon = { icon = '', color = 'purple' },
+        },
+        {
+          '<F6>',
+          '<plug>(vimtex-env-surround-visual)',
+          desc = 'Surround selection with environment',
+          icon = { icon = '', color = 'purple' },
+          mode = 'x',
+        },
+        {
+          'tsd',
+          '<plug>(vimtex-delim-toggle-modifier)',
+          desc = 'delimiter',
+          icon = { icon = '󰅩', color = 'yellow' },
+          mode = 'nx',
+        },
+        {
+          'tsD',
+          '<plug>(vimtex-delim-toggle-modifier-reverse)',
+          desc = 'reverse surrounding delimiter',
+          icon = { icon = '󰅩', color = 'yellow' },
+          mode = 'nx',
+        },
+        {
+          '<F7>',
+          '<plug>(vimtex-cmd-create)',
+          desc = 'Create command',
+          icon = { icon = '󰅩', color = 'green' },
+          mode = 'nxi',
+        },
+        {
+          ']]',
+          '<plug>(vimtex-delim-close)',
+          desc = 'Close delimiter',
+          icon = { icon = '󰅩', color = 'green' },
+          mode = 'i',
+        },
+        {
+          '<F8>',
+          '<plug>(vimtex-delim-add-modifiers)',
+          desc = 'Add \\left and \\right',
+          icon = { icon = '󰅩', color = 'green' },
           mode = 'n',
-          {
-            '<localleader>ll',
-            '<plug>(vimtex-compile)',
-            desc = 'Compile',
-            icon = { icon = '', color = 'green' },
-          },
-          {
-            '<localleader>lL',
-            '<plug>(vimtex-compile-selected)',
-            desc = 'Compile selected',
-            icon = { icon = '', color = 'green' },
-            mode = 'nx',
-          },
-          {
-            '<localleader>li',
-            '<plug>(vimtex-info)',
-            desc = 'Information',
-            icon = { icon = '', color = 'purple' },
-          },
-          {
-            '<localleader>lI',
-            '<plug>(vimtex-info-full)',
-            desc = 'Full information',
-            icon = { icon = '󰙎', color = 'purple' },
-          },
-          {
-            '<localleader>lt',
-            '<plug>(vimtex-toc-open)',
-            desc = 'Table of Contents',
-            icon = { icon = '󰠶', color = 'purple' },
-          },
-          {
-            '<localleader>lT',
-            '<plug>(vimtex-toc-toggle)',
-            desc = 'Toggle table of Contents',
-            icon = { icon = '󰠶', color = 'purple' },
-          },
-          {
-            '<localleader>lq',
-            '<plug>(vimtex-log)',
-            desc = 'Log',
-            icon = { icon = '', color = 'purple' },
-          },
-          {
-            '<localleader>lv',
-            '<plug>(vimtex-view)',
-            desc = 'View',
-            icon = { icon = '', color = 'green' },
-          },
-          {
-            '<localleader>lr',
-            '<plug>(vimtex-reverse-search)',
-            desc = 'Reverse search',
-            icon = { icon = '', color = 'purple' },
-          },
-          {
-            '<localleader>lk',
-            '<plug>(vimtex-stop)',
-            desc = 'Stop',
-            icon = { icon = '', color = 'red' },
-          },
-          {
-            '<localleader>lK',
-            '<plug>(vimtex-stop-all)',
-            desc = 'Stop all',
-            icon = { icon = '󰓛', color = 'red' },
-          },
-          {
-            '<localleader>le',
-            '<plug>(vimtex-errors)',
-            desc = 'Errors',
-            icon = { icon = '', color = 'red' },
-          },
-          {
-            '<localleader>lo',
-            '<plug>(vimtex-compile-output)',
-            desc = 'Compile output',
-            icon = { icon = '', color = 'purple' },
-          },
-          {
-            '<localleader>lg',
-            '<plug>(vimtex-status)',
-            desc = 'Status',
-            icon = { icon = '󱖫', color = 'purple' },
-          },
-          {
-            '<localleader>lG',
-            '<plug>(vimtex-status-full)',
-            desc = 'Full status',
-            icon = { icon = '󱖫', color = 'purple' },
-          },
-          {
-            '<localleader>lc',
-            '<plug>(vimtex-clean)',
-            desc = 'Clean',
-            icon = { icon = '󰃢', color = 'orange' },
-          },
-          {
-            '<localleader>lh',
-            '<Cmd>VimtexClearCache ALL<cr>',
-            desc = 'Clear all cache',
-            icon = { icon = '󰃢', color = 'grey' },
-          },
-          {
-            '<localleader>lC',
-            '<plug>(vimtex-clean-full)',
-            desc = 'Full clean',
-            icon = { icon = '󰃢', color = 'red' },
-          },
-          {
-            '<localleader>lx',
-            '<plug>(vimtex-reload)',
-            desc = 'Reload',
-            icon = { icon = '󰑓', color = 'green' },
-          },
-          {
-            '<localleader>lX',
-            '<plug>(vimtex-reload-state)',
-            desc = 'Reload state',
-            icon = { icon = '󰑓', color = 'cyan' },
-          },
-          {
-            '<localleader>lm',
-            '<plug>(vimtex-imaps-list)',
-            desc = 'Input mappings',
-            icon = { icon = '', color = 'purple' },
-          },
-          {
-            '<localleader>ls',
-            '<plug>(vimtex-toggle-main)',
-            desc = 'Toggle main',
-            icon = { icon = '󱪚', color = 'green' },
-          },
-          {
-            '<localleader>la',
-            '<plug>(vimtex-context-menu)',
-            desc = 'Context menu',
-            icon = { icon = '󰮫', color = 'purple' },
-          },
-          {
-            'ds',
-            group = '+surrounding',
-            icon = { icon = '󰗅', color = 'green' },
-          },
-          {
-            'dse',
-            '<plug>(vimtex-env-delete)',
-            desc = 'environment',
-            icon = { icon = '', color = 'red' },
-          },
-          {
-            'dsc',
-            '<plug>(vimtex-cmd-delete)',
-            desc = 'command',
-            icon = { icon = '', color = 'red' },
-          },
-          {
-            'ds$',
-            '<plug>(vimtex-env-delete-math)',
-            desc = 'math',
-            icon = { icon = '󰿈', color = 'red' },
-          },
-          {
-            'dsd',
-            '<plug>(vimtex-delim-delete)',
-            desc = 'delimiter',
-            icon = { icon = '󰅩', color = 'red' },
-          },
-          {
-            'cs',
-            group = '+surrounding',
-            icon = { icon = '󰗅', color = 'green' },
-          },
-          {
-            'cse',
-            '<plug>(vimtex-env-change)',
-            desc = 'environment',
-            icon = { icon = '', color = 'blue' },
-          },
-          {
-            'csc',
-            '<plug>(vimtex-cmd-change)',
-            desc = 'command',
-            icon = { icon = '', color = 'blue' },
-          },
-          {
-            'cs$',
-            '<plug>(vimtex-env-change-math)',
-            desc = 'math environment',
-            icon = { icon = '󰿈', color = 'blue' },
-          },
-          {
-            'csd',
-            '<plug>(vimtex-delim-change-math)',
-            desc = 'delimiter',
-            icon = { icon = '󰅩', color = 'blue' },
-          },
-          {
-            'ts',
-            group = '+surrounding',
-            icon = { icon = '󰗅', color = 'green' },
-            mode = 'nx',
-          },
-          {
-            'tsf',
-            '<plug>(vimtex-cmd-toggle-frac)',
-            desc = 'fraction',
-            icon = { icon = '󱦒', color = 'yellow' },
-            mode = 'nx',
-          },
-          {
-            'tsc',
-            '<plug>(vimtex-cmd-toggle-star)',
-            desc = 'command',
-            icon = { icon = '', color = 'yellow' },
-          },
-          {
-            'tse',
-            '<plug>(vimtex-env-toggle-star)',
-            desc = 'environment',
-            icon = { icon = '', color = 'yellow' },
-          },
-          {
-            'ts$',
-            '<plug>(vimtex-env-toggle-math)',
-            desc = 'math environment',
-            icon = { icon = '󰿈', color = 'yellow' },
-          },
-          {
-            'tsb',
-            '<plug>(vimtex-env-toggle-break)',
-            desc = 'break',
-            icon = { icon = '󰿈', color = 'yellow' },
-          },
-          {
-            '<F6>',
-            '<plug>(vimtex-env-surround-line)',
-            desc = 'Surround line with environment',
-            icon = { icon = '', color = 'purple' },
-          },
-          {
-            '<F6>',
-            '<plug>(vimtex-env-surround-visual)',
-            desc = 'Surround selection with environment',
-            icon = { icon = '', color = 'purple' },
-            mode = 'x',
-          },
-          {
-            'tsd',
-            '<plug>(vimtex-delim-toggle-modifier)',
-            desc = 'delimiter',
-            icon = { icon = '󰅩', color = 'yellow' },
-            mode = 'nx',
-          },
-          {
-            'tsD',
-            '<plug>(vimtex-delim-toggle-modifier-reverse)',
-            desc = 'reverse surrounding delimiter',
-            icon = { icon = '󰅩', color = 'yellow' },
-            mode = 'nx',
-          },
-          {
-            '<F7>',
-            '<plug>(vimtex-cmd-create)',
-            desc = 'Create command',
-            icon = { icon = '󰅩', color = 'green' },
-            mode = 'nxi',
-          },
-          {
-            ']]',
-            '<plug>(vimtex-delim-close)',
-            desc = 'Close delimiter',
-            icon = { icon = '󰅩', color = 'green' },
-            mode = 'i',
-          },
-          {
-            '<F8>',
-            '<plug>(vimtex-delim-add-modifiers)',
-            desc = 'Add \\left and \\right',
-            icon = { icon = '󰅩', color = 'green' },
-            mode = 'n',
-          },
-        },
-        {
-          mode = 'xo',
-          {
-            'ac',
-            '<plug>(vimtex-ac)',
-            desc = 'command',
-            icon = { icon = '', color = 'orange' },
-          },
-          {
-            'ic',
-            '<plug>(vimtex-ic)',
-            desc = 'command',
-            icon = { icon = '', color = 'orange' },
-          },
-          {
-            'ad',
-            '<plug>(vimtex-ad)',
-            desc = 'delimiter',
-            icon = { icon = '󰅩', color = 'orange' },
-          },
-          {
-            'id',
-            '<plug>(vimtex-id)',
-            desc = 'delimiter',
-            icon = { icon = '󰅩', color = 'orange' },
-          },
-          {
-            'ae',
-            '<plug>(vimtex-ae)',
-            desc = 'environment',
-            icon = { icon = '', color = 'orange' },
-          },
-          {
-            'ie',
-            '<plug>(vimtex-ie)',
-            desc = 'environment',
-            icon = { icon = '', color = 'orange' },
-          },
-          {
-            'a$',
-            '<plug>(vimtex-a$)',
-            desc = 'math',
-            icon = { icon = '󰿈', color = 'orange' },
-          },
-          {
-            'i$',
-            '<plug>(vimtex-i$)',
-            desc = 'math',
-            icon = { icon = '󰿈', color = 'orange' },
-          },
-          {
-            'aP',
-            '<plug>(vimtex-aP)',
-            desc = 'section',
-            icon = { icon = '󰚟', color = 'orange' },
-          },
-          {
-            'iP',
-            '<plug>(vimtex-iP)',
-            desc = 'section',
-            icon = { icon = '󰚟', color = 'orange' },
-          },
-          {
-            'am',
-            '<plug>(vimtex-am)',
-            desc = 'item',
-            icon = { icon = '', color = 'orange' },
-          },
-          {
-            'im',
-            '<plug>(vimtex-im)',
-            desc = 'item',
-            icon = { icon = '', color = 'orange' },
-          },
-        },
-        {
-          mode = 'nxo',
-          {
-            '%',
-            '<plug>(vimtex-%)',
-            desc = 'Matching pair',
-            icon = { icon = '󰐱', color = 'cyan' },
-          },
-          {
-            ']]',
-            '<plug>(vimtex-]])',
-            desc = 'Next end of a section',
-            icon = { icon = '󰚟', color = 'cyan' },
-          },
-          {
-            '][',
-            '<plug>(vimtex-][)',
-            desc = 'Next beginning of a section',
-            icon = { icon = '󰚟', color = 'cyan' },
-          },
-          {
-            '[]',
-            '<plug>(vimtex-[])',
-            desc = 'Previous end of a section',
-            icon = { icon = '󰚟', color = 'cyan' },
-          },
-          {
-            '[[',
-            '<plug>(vimtex-[[)',
-            desc = 'Previous beginning of a section',
-            icon = { icon = '󰚟', color = 'cyan' },
-          },
-          {
-            ']m',
-            '<plug>(vimtex-]m)',
-            desc = 'Next start of an environment',
-            icon = { icon = '', color = 'cyan' },
-          },
-          {
-            ']M',
-            '<plug>(vimtex-]M)',
-            desc = 'Next end of an environment',
-            icon = { icon = '', color = 'cyan' },
-          },
-          {
-            '[m',
-            '<plug>(vimtex-[m)',
-            desc = 'Previous start of an environment',
-            icon = { icon = '', color = 'cyan' },
-          },
-          {
-            '[M',
-            '<plug>(vimtex-[M)',
-            desc = 'Previous end of an environment',
-            icon = { icon = '', color = 'cyan' },
-          },
-          {
-            ']n',
-            '<plug>(vimtex-]n)',
-            desc = 'Next start of math',
-            icon = { icon = '󰿈', color = 'cyan' },
-          },
-          {
-            ']N',
-            '<plug>(vimtex-]N)',
-            desc = 'Next end of math',
-            icon = { icon = '󰿈', color = 'cyan' },
-          },
-          {
-            '[n',
-            '<plug>(vimtex-[n)',
-            desc = 'Previous start of math',
-            icon = { icon = '󰿈', color = 'cyan' },
-          },
-          {
-            '[N',
-            '<plug>(vimtex-[N)',
-            desc = 'Previous end of math',
-            icon = { icon = '󰿈', color = 'cyan' },
-          },
-          {
-            ']r',
-            '<plug>(vimtex-]r)',
-            desc = 'Next start of frame environment',
-            icon = { icon = '󰹉', color = 'cyan' },
-          },
-          {
-            ']R',
-            '<plug>(vimtex-]R)',
-            desc = 'Next end of frame environment',
-            icon = { icon = '󰹉', color = 'cyan' },
-          },
-          {
-            '[r',
-            '<plug>(vimtex-[r)',
-            desc = 'Previous start of frame environment',
-            icon = { icon = '󰹉', color = 'cyan' },
-          },
-          {
-            '[R',
-            '<plug>(vimtex-[R)',
-            desc = 'Previous end of frame environment',
-            icon = { icon = '󰹉', color = 'cyan' },
-          },
-          {
-            ']/',
-            '<plug>(vimtex-]/)',
-            desc = 'Next start of a comment',
-            icon = { icon = '', color = 'cyan' },
-          },
-          {
-            ']*',
-            '<plug>(vimtex-]star)',
-            desc = 'Next end of a comment',
-            icon = { icon = '', color = 'cyan' },
-          },
-          {
-            '[/',
-            '<plug>(vimtex-[/)',
-            desc = 'Previous start of a comment',
-            icon = { icon = '', color = 'cyan' },
-          },
-          {
-            '[*',
-            '<plug>(vimtex-[star)',
-            desc = 'Previous end of a comment',
-            icon = { icon = '', color = 'cyan' },
-          },
-        },
-        {
-          'K',
-          '<plug>(vimtex-doc-package)',
-          desc = 'See package documentation',
-          icon = { icon = '󱔗', color = 'azure' },
         },
       },
+      {
+        mode = 'xo',
+        {
+          'ac',
+          '<plug>(vimtex-ac)',
+          desc = 'command',
+          icon = { icon = '', color = 'orange' },
+        },
+        {
+          'ic',
+          '<plug>(vimtex-ic)',
+          desc = 'command',
+          icon = { icon = '', color = 'orange' },
+        },
+        {
+          'ad',
+          '<plug>(vimtex-ad)',
+          desc = 'delimiter',
+          icon = { icon = '󰅩', color = 'orange' },
+        },
+        {
+          'id',
+          '<plug>(vimtex-id)',
+          desc = 'delimiter',
+          icon = { icon = '󰅩', color = 'orange' },
+        },
+        {
+          'ae',
+          '<plug>(vimtex-ae)',
+          desc = 'environment',
+          icon = { icon = '', color = 'orange' },
+        },
+        {
+          'ie',
+          '<plug>(vimtex-ie)',
+          desc = 'environment',
+          icon = { icon = '', color = 'orange' },
+        },
+        {
+          'a$',
+          '<plug>(vimtex-a$)',
+          desc = 'math',
+          icon = { icon = '󰿈', color = 'orange' },
+        },
+        {
+          'i$',
+          '<plug>(vimtex-i$)',
+          desc = 'math',
+          icon = { icon = '󰿈', color = 'orange' },
+        },
+        {
+          'aP',
+          '<plug>(vimtex-aP)',
+          desc = 'section',
+          icon = { icon = '󰚟', color = 'orange' },
+        },
+        {
+          'iP',
+          '<plug>(vimtex-iP)',
+          desc = 'section',
+          icon = { icon = '󰚟', color = 'orange' },
+        },
+        {
+          'am',
+          '<plug>(vimtex-am)',
+          desc = 'item',
+          icon = { icon = '', color = 'orange' },
+        },
+        {
+          'im',
+          '<plug>(vimtex-im)',
+          desc = 'item',
+          icon = { icon = '', color = 'orange' },
+        },
+      },
+      {
+        mode = 'nxo',
+        {
+          '%',
+          '<plug>(vimtex-%)',
+          desc = 'Matching pair',
+          icon = { icon = '󰐱', color = 'cyan' },
+        },
+        {
+          ']]',
+          '<plug>(vimtex-]])',
+          desc = 'Next end of a section',
+          icon = { icon = '󰚟', color = 'cyan' },
+        },
+        {
+          '][',
+          '<plug>(vimtex-][)',
+          desc = 'Next beginning of a section',
+          icon = { icon = '󰚟', color = 'cyan' },
+        },
+        {
+          '[]',
+          '<plug>(vimtex-[])',
+          desc = 'Previous end of a section',
+          icon = { icon = '󰚟', color = 'cyan' },
+        },
+        {
+          '[[',
+          '<plug>(vimtex-[[)',
+          desc = 'Previous beginning of a section',
+          icon = { icon = '󰚟', color = 'cyan' },
+        },
+        {
+          ']m',
+          '<plug>(vimtex-]m)',
+          desc = 'Next start of an environment',
+          icon = { icon = '', color = 'cyan' },
+        },
+        {
+          ']M',
+          '<plug>(vimtex-]M)',
+          desc = 'Next end of an environment',
+          icon = { icon = '', color = 'cyan' },
+        },
+        {
+          '[m',
+          '<plug>(vimtex-[m)',
+          desc = 'Previous start of an environment',
+          icon = { icon = '', color = 'cyan' },
+        },
+        {
+          '[M',
+          '<plug>(vimtex-[M)',
+          desc = 'Previous end of an environment',
+          icon = { icon = '', color = 'cyan' },
+        },
+        {
+          ']n',
+          '<plug>(vimtex-]n)',
+          desc = 'Next start of math',
+          icon = { icon = '󰿈', color = 'cyan' },
+        },
+        {
+          ']N',
+          '<plug>(vimtex-]N)',
+          desc = 'Next end of math',
+          icon = { icon = '󰿈', color = 'cyan' },
+        },
+        {
+          '[n',
+          '<plug>(vimtex-[n)',
+          desc = 'Previous start of math',
+          icon = { icon = '󰿈', color = 'cyan' },
+        },
+        {
+          '[N',
+          '<plug>(vimtex-[N)',
+          desc = 'Previous end of math',
+          icon = { icon = '󰿈', color = 'cyan' },
+        },
+        {
+          ']r',
+          '<plug>(vimtex-]r)',
+          desc = 'Next start of frame environment',
+          icon = { icon = '󰹉', color = 'cyan' },
+        },
+        {
+          ']R',
+          '<plug>(vimtex-]R)',
+          desc = 'Next end of frame environment',
+          icon = { icon = '󰹉', color = 'cyan' },
+        },
+        {
+          '[r',
+          '<plug>(vimtex-[r)',
+          desc = 'Previous start of frame environment',
+          icon = { icon = '󰹉', color = 'cyan' },
+        },
+        {
+          '[R',
+          '<plug>(vimtex-[R)',
+          desc = 'Previous end of frame environment',
+          icon = { icon = '󰹉', color = 'cyan' },
+        },
+        {
+          ']/',
+          '<plug>(vimtex-]/)',
+          desc = 'Next start of a comment',
+          icon = { icon = '', color = 'cyan' },
+        },
+        {
+          ']*',
+          '<plug>(vimtex-]star)',
+          desc = 'Next end of a comment',
+          icon = { icon = '', color = 'cyan' },
+        },
+        {
+          '[/',
+          '<plug>(vimtex-[/)',
+          desc = 'Previous start of a comment',
+          icon = { icon = '', color = 'cyan' },
+        },
+        {
+          '[*',
+          '<plug>(vimtex-[star)',
+          desc = 'Previous end of a comment',
+          icon = { icon = '', color = 'cyan' },
+        },
+      },
+      {
+        'K',
+        '<plug>(vimtex-doc-package)',
+        desc = 'See package documentation',
+        icon = { icon = '󱔗', color = 'azure' },
+      },
     },
-  },
+  }
 
-  -- NOTE: Plugins can specify dependencies.
+  -- You can easily change to a different colorscheme.
+  -- Change the name of the colorscheme plugin below, and then
+  -- change the command in the config to whatever the name of that colorscheme is.
   --
-  -- The dependencies are proper plugin specifications as well - anything
-  -- you do for a plugin at the top level, you can do for a dependency.
-  --
-  -- Use the `dependencies` key to specify the dependencies of a particular plugin
-
-  { -- Fuzzy Finder (files, lsp, etc)
-    'nvim-telescope/telescope.nvim',
-    -- By default, Telescope is included and acts as your picker for everything.
-
-    -- If you would like to switch to a different picker (like snacks, or fzf-lua)
-    -- you can disable the Telescope plugin by setting enabled to false and enable
-    -- your replacement picker by requiring it explicitly (e.g. 'custom.plugins.snacks')
-
-    -- Note: If you customize your config for yourself,
-    -- it’s best to remove the Telescope plugin config entirely
-    -- instead of just disabling it here, to keep your config clean.
-    enabled = true,
-    event = 'VimEnter',
-    dependencies = {
-      'nvim-lua/plenary.nvim',
-      { -- If encountering errors, see telescope-fzf-native README for installation instructions
-        'nvim-telescope/telescope-fzf-native.nvim',
-
-        -- `build` is used to run some command when the plugin is installed/updated.
-        -- This is only run then, not every time Neovim starts up.
-        build = 'make',
-
-        -- `cond` is a condition used to determine whether this plugin should be
-        -- installed and loaded.
-        cond = function() return vim.fn.executable 'make' == 1 end,
-      },
-      { 'nvim-telescope/telescope-ui-select.nvim' },
-
-      -- Useful for getting pretty icons, but requires a Nerd Font.
-      { 'nvim-tree/nvim-web-devicons', enabled = vim.g.have_nerd_font },
+  -- If you want to see what colorschemes are already installed, you can use `:Telescope colorscheme`.
+  vim.pack.add {{ src = 'https://github.com/catppuccin/nvim', name = 'catppuccin' }}
+  require('catppuccin').setup {
+    flavour = 'mocha',
+    dim_inactive = {
+      enabled = true,
+      shade = 'dark',
+      percentage = 0.15,
     },
-    config = function()
-      -- Telescope is a fuzzy finder that comes with a lot of different things that
-      -- it can fuzzy find! It's more than just a "file finder", it can search
-      -- many different aspects of Neovim, your workspace, LSP, and more!
-      --
-      -- The easiest way to use Telescope, is to start by doing something like:
-      --  :Telescope help_tags
-      --
-      -- After running this command, a window will open up and you're able to
-      -- type in the prompt window. You'll see a list of `help_tags` options and
-      -- a corresponding preview of the help.
-      --
-      -- Two important keymaps to use while in Telescope are:
-      --  - Insert mode: <c-/>
-      --  - Normal mode: ?
-      --
-      -- This opens a window that shows you all of the keymaps for the current
-      -- Telescope picker. This is really useful to discover what Telescope can
-      -- do as well as how to actually do it!
-
-      -- [[ Configure Telescope ]]
-      -- See `:help telescope` and `:help telescope.setup()`
-      require('telescope').setup {
-        -- You can put your default mappings / updates / etc. in here
-        --  All the info you're looking for is in `:help telescope.setup()`
-        --
-        -- defaults = {
-        --   mappings = {
-        --     i = { ['<c-enter>'] = 'to_fuzzy_refine' },
-        --   },
-        -- },
-        -- pickers = {}
-        extensions = {
-          ['ui-select'] = { require('telescope.themes').get_dropdown() },
-        },
-      }
-
-      -- Enable Telescope extensions if they are installed
-      pcall(require('telescope').load_extension, 'fzf')
-      pcall(require('telescope').load_extension, 'ui-select')
-
-      -- See `:help telescope.builtin`
-      local builtin = require 'telescope.builtin'
-      vim.keymap.set('n', '<leader>sh', builtin.help_tags, { desc = '[S]earch [H]elp' })
-      vim.keymap.set('n', '<leader>sk', builtin.keymaps, { desc = '[S]earch [K]eymaps' })
-      vim.keymap.set('n', '<leader>sf', builtin.find_files, { desc = '[S]earch [F]iles' })
-      vim.keymap.set('n', '<leader>ss', builtin.builtin, { desc = '[S]earch [S]elect Telescope' })
-      vim.keymap.set({ 'n', 'v' }, '<leader>sw', builtin.grep_string, { desc = '[S]earch current [W]ord' })
-      vim.keymap.set('n', '<leader>sg', builtin.live_grep, { desc = '[S]earch by [G]rep' })
-      vim.keymap.set('n', '<leader>sd', builtin.diagnostics, { desc = '[S]earch [D]iagnostics' })
-      vim.keymap.set('n', '<leader>sr', builtin.resume, { desc = '[S]earch [R]esume' })
-      vim.keymap.set('n', '<leader>s.', builtin.oldfiles, { desc = '[S]earch Recent Files ("." for repeat)' })
-      vim.keymap.set('n', '<leader>sc', builtin.commands, { desc = '[S]earch [C]ommands' })
-      vim.keymap.set('n', '<leader><leader>', builtin.buffers, { desc = '[ ] Find existing buffers' })
-
-      -- This runs on LSP attach per buffer (see main LSP attach function in 'neovim/nvim-lspconfig' config for more info,
-      -- it is better explained there). This allows easily switching between pickers if you prefer using something else!
-      vim.api.nvim_create_autocmd('LspAttach', {
-        group = vim.api.nvim_create_augroup('telescope-lsp-attach', { clear = true }),
-        callback = function(event)
-          local buf = event.buf
-
-          -- Find references for the word under your cursor.
-          vim.keymap.set('n', 'grr', builtin.lsp_references, { buffer = buf, desc = '[G]oto [R]eferences' })
-
-          -- Jump to the implementation of the word under your cursor.
-          -- Useful when your language has ways of declaring types without an actual implementation.
-          vim.keymap.set('n', 'gri', builtin.lsp_implementations, { buffer = buf, desc = '[G]oto [I]mplementation' })
-
-          -- Jump to the definition of the word under your cursor.
-          -- This is where a variable was first declared, or where a function is defined, etc.
-          -- To jump back, press <C-t>.
-          vim.keymap.set('n', 'grd', builtin.lsp_definitions, { buffer = buf, desc = '[G]oto [D]efinition' })
-
-          -- Fuzzy find all the symbols in your current document.
-          -- Symbols are things like variables, functions, types, etc.
-          vim.keymap.set('n', 'gO', builtin.lsp_document_symbols, { buffer = buf, desc = 'Open Document Symbols' })
-
-          -- Fuzzy find all the symbols in your current workspace.
-          -- Similar to document symbols, except searches over your entire project.
-          vim.keymap.set('n', 'gW', builtin.lsp_dynamic_workspace_symbols, { buffer = buf, desc = 'Open Workspace Symbols' })
-
-          -- Jump to the type of the word under your cursor.
-          -- Useful when you're not sure what type a variable is and you want to see
-          -- the definition of its *type*, not where it was *defined*.
-          vim.keymap.set('n', 'grt', builtin.lsp_type_definitions, { buffer = buf, desc = '[G]oto [T]ype Definition' })
-        end,
-      })
-
-      -- Override default behavior and theme when searching
-      vim.keymap.set('n', '<leader>/', function()
-        -- You can pass additional configuration to Telescope to change the theme, layout, etc.
-        builtin.current_buffer_fuzzy_find(require('telescope.themes').get_dropdown {
-          winblend = 10,
-          previewer = false,
-        })
-      end, { desc = '[/] Fuzzily search in current buffer' })
-
-      -- It's also possible to pass additional configuration options.
-      --  See `:help telescope.builtin.live_grep()` for information about particular keys
-      vim.keymap.set(
-        'n',
-        '<leader>s/',
-        function()
-          builtin.live_grep {
-            grep_open_files = true,
-            prompt_title = 'Live Grep in Open Files',
-          }
-        end,
-        { desc = '[S]earch [/] in Open Files' }
-      )
-
-      -- Shortcut for searching your Neovim configuration files
-      vim.keymap.set('n', '<leader>sn', function() builtin.find_files { cwd = vim.fn.stdpath 'config' } end, { desc = '[S]earch [N]eovim files' })
-    end,
-  },
-
-  -- LSP Plugins
-  {
-    -- Main LSP Configuration
-    'neovim/nvim-lspconfig',
-    dependencies = {
-      -- Automatically install LSPs and related tools to stdpath for Neovim
-      -- Mason must be loaded before its dependents so we need to set it up here.
-      -- NOTE: `opts = {}` is the same as calling `require('mason').setup({})`
-      {
-        'mason-org/mason.nvim',
-        ---@module 'mason.settings'
-        ---@type MasonSettings
-        ---@diagnostic disable-next-line: missing-fields
-        opts = {},
-      },
-      -- Maps LSP server names between nvim-lspconfig and Mason package names.
-      'mason-org/mason-lspconfig.nvim',
-      'WhoIsSethDaniel/mason-tool-installer.nvim',
-
-      -- Useful status updates for LSP.
-      { 'j-hui/fidget.nvim', opts = {} },
+    styles = {
+      comments = { 'italic' },
+      conditionals = { 'italic' },
+      loops = {},
+      functions = {},
+      keywords = {},
+      strings = {},
+      variables = {},
+      numbers = {},
+      booleans = {},
+      properties = {},
+      types = {},
+      operators = {},
+      miscs = {},
     },
-    config = function()
-      -- Brief aside: **What is LSP?**
-      --
-      -- LSP is an initialism you've probably heard, but might not understand what it is.
-      --
-      -- LSP stands for Language Server Protocol. It's a protocol that helps editors
-      -- and language tooling communicate in a standardized fashion.
-      --
-      -- In general, you have a "server" which is some tool built to understand a particular
-      -- language (such as `gopls`, `lua_ls`, `rust_analyzer`, etc.). These Language Servers
-      -- (sometimes called LSP servers, but that's kind of like ATM Machine) are standalone
-      -- processes that communicate with some "client" - in this case, Neovim!
-      --
-      -- LSP provides Neovim with features like:
-      --  - Go to definition
-      --  - Find references
-      --  - Autocompletion
-      --  - Symbol Search
-      --  - and more!
-      --
-      -- Thus, Language Servers are external tools that must be installed separately from
-      -- Neovim. This is where `mason` and related plugins come into play.
-      --
-      -- If you're wondering about lsp vs treesitter, you can check out the wonderfully
-      -- and elegantly composed help section, `:help lsp-vs-treesitter`
+    auto_integrations = true,
+  }
 
-      --  This function gets run when an LSP attaches to a particular buffer.
-      --    That is to say, every time a new file is opened that is associated with
-      --    an lsp (for example, opening `main.rs` is associated with `rust_analyzer`) this
-      --    function will be executed to configure the current buffer
-      vim.api.nvim_create_autocmd('LspAttach', {
-        group = vim.api.nvim_create_augroup('kickstart-lsp-attach', { clear = true }),
-        callback = function(event)
-          -- NOTE: Remember that Lua is a real programming language, and as such it is possible
-          -- to define small helper and utility functions so you don't have to repeat yourself.
-          --
-          -- In this case, we create a function that lets us more easily define mappings specific
-          -- for LSP related items. It sets the mode, buffer and description for us each time.
-          local map = function(keys, func, desc, mode)
-            mode = mode or 'n'
-            vim.keymap.set(mode, keys, func, { buffer = event.buf, desc = 'LSP: ' .. desc })
-          end
-
-          -- Rename the variable under your cursor.
-          --  Most Language Servers support renaming across files, etc.
-          map('grn', vim.lsp.buf.rename, '[R]e[n]ame')
-
-          -- Execute a code action, usually your cursor needs to be on top of an error
-          -- or a suggestion from your LSP for this to activate.
-          map('gra', vim.lsp.buf.code_action, '[G]oto Code [A]ction', { 'n', 'x' })
-
-          -- WARN: This is not Goto Definition, this is Goto Declaration.
-          --  For example, in C this would take you to the header.
-          map('grD', vim.lsp.buf.declaration, '[G]oto [D]eclaration')
-
-          -- The following two autocommands are used to highlight references of the
-          -- word under your cursor when your cursor rests there for a little while.
-          --    See `:help CursorHold` for information about when this is executed
-          --
-          -- When you move your cursor, the highlights will be cleared (the second autocommand).
-          local client = vim.lsp.get_client_by_id(event.data.client_id)
-          if client and client:supports_method('textDocument/documentHighlight', event.buf) then
-            local highlight_augroup = vim.api.nvim_create_augroup('kickstart-lsp-highlight', { clear = false })
-            vim.api.nvim_create_autocmd({ 'CursorHold', 'CursorHoldI' }, {
-              buffer = event.buf,
-              group = highlight_augroup,
-              callback = vim.lsp.buf.document_highlight,
-            })
-
-            vim.api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI' }, {
-              buffer = event.buf,
-              group = highlight_augroup,
-              callback = vim.lsp.buf.clear_references,
-            })
-
-            vim.api.nvim_create_autocmd('LspDetach', {
-              group = vim.api.nvim_create_augroup('kickstart-lsp-detach', { clear = true }),
-              callback = function(event2)
-                vim.lsp.buf.clear_references()
-                vim.api.nvim_clear_autocmds { group = 'kickstart-lsp-highlight', buffer = event2.buf }
-              end,
-            })
-          end
-
-          -- The following code creates a keymap to toggle inlay hints in your
-          -- code, if the language server you are using supports them
-          --
-          -- This may be unwanted, since they displace some of your code
-          if client and client:supports_method('textDocument/inlayHint', event.buf) then
-            map('<leader>th', function() vim.lsp.inlay_hint.enable(not vim.lsp.inlay_hint.is_enabled { bufnr = event.buf }) end, '[T]oggle Inlay [H]ints')
-          end
-        end,
-      })
-
-      -- Enable the following language servers
-      --  Feel free to add/remove any LSPs that you want here. They will automatically be installed.
-      --  See `:help lsp-config` for information about keys and how to configure
-      ---@type table<string, vim.lsp.Config>
-      local servers = {
-        clangd = {},
-        -- gopls = {},
-        basedpyright = {
-          settings = {
-            basedpyright = {
-              analysis = {
-                typeCheckingMode = 'recommended',
-                diagnosticMode = 'workspace',
-                inlayHints = {
-                  callArgumentNames = true,
-                },
-              },
-            },
-          },
-        },
-        rust_analyzer = {},
-        ruff = {
-          settings = {
-            lineLength = 120,
-            organizeImports = true,
-            showSyntaxErrors = true,
-            logLevel = 'info',
-            fixAll = true,
-            codeAction = {
-              lint = {
-                enable = true,
-                preview = true,
-              },
-            },
-          },
-        },
-        -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
-        --
-        -- Some languages (like typescript) have entire language plugins that can be useful:
-        --    https://github.com/pmizio/typescript-tools.nvim
-        --
-        -- But for many setups, the LSP (`ts_ls`) will work just fine
-        -- ts_ls = {},
-        --
-        ltex_plus = {
-          on_attach = function(client, bufnr)
-            -- rest of your on_attach process.
-            require('ltex_extra').setup {
-              load_langs = { 'en-AU' },
-              init_check = true,
-              path = '.ltex',
-              log_level = 'none',
-              server_opts = nil,
-            }
-          end,
-          settings = {
-            underline = true,
-            ltex = {
-              language = 'en-AU',
-              additionalRules = {
-                enablePickyRules = true,
-              },
-              enabledRules = {
-                ['en-AU'] = {
-                  'IT_IS_OBVIOUS',
-                  'READABILITY_RULE_SIMPLE',
-                  'READABILITY_RULE_DIFFICULT',
-                  'WIKIPEDIA_CONTRACTIONS',
-                },
-              },
-              enabled = {
-                'asciidoc',
-                'bib',
-                'context',
-                'gitcommit',
-                'html',
-                'markdown',
-                'org',
-                'pandoc',
-                'plaintex',
-                'quarto',
-                'mail',
-                'mdx',
-                'rmd',
-                'rnoweb',
-                'rst',
-                'tex',
-                'latex',
-                'text',
-                'typst',
-                'xhtml',
-              },
-              completionEnabled = true,
-              latex = {
-                environments = {
-                  ['itemize'] = 'ignore',
-                  ['minted'] = 'ignore',
-                  ['table'] = 'ignore',
-                  ['figure'] = 'ignore',
-                },
-                commands = {},
-              },
-            },
-          },
-        },
-
-        stylua = {}, -- Used to format Lua code
-
-        -- Special Lua Config, as recommended by neovim help docs
-        lua_ls = {
-          on_init = function(client)
-            client.server_capabilities.documentFormattingProvider = false -- Disable formatting (formatting is done by stylua)
-
-            if client.workspace_folders then
-              local path = client.workspace_folders[1].name
-              if path ~= vim.fn.stdpath 'config' and (vim.uv.fs_stat(path .. '/.luarc.json') or vim.uv.fs_stat(path .. '/.luarc.jsonc')) then return end
-            end
-
-            client.config.settings.Lua = vim.tbl_deep_extend('force', client.config.settings.Lua, {
-              runtime = {
-                version = 'LuaJIT',
-                path = { 'lua/?.lua', 'lua/?/init.lua' },
-              },
-              workspace = {
-                checkThirdParty = false,
-                -- NOTE: this is a lot slower and will cause issues when working on your own configuration.
-                --  See https://github.com/neovim/nvim-lspconfig/issues/3189
-                library = vim.tbl_extend('force', vim.api.nvim_get_runtime_file('', true), {
-                  '${3rd}/luv/library',
-                  '${3rd}/busted/library',
-                }),
-              },
-            })
-          end,
-          ---@type lspconfig.settings.lua_ls
-          settings = {
-            Lua = {
-              format = { enable = false }, -- Disable formatting (formatting is done by stylua)
-            },
-          },
-        },
-      }
-
-      -- Ensure the servers and tools above are installed
-      --
-      -- To check the current status of installed tools and/or manually install
-      -- other tools, you can run
-      --    :Mason
-      --
-      -- You can press `g?` for help in this menu.
-      local ensure_installed = vim.tbl_keys(servers or {})
-      vim.list_extend(ensure_installed, {
-        -- You can add other tools here that you want Mason to install
-      })
-
-      require('mason-tool-installer').setup { ensure_installed = ensure_installed }
-
-      for name, server in pairs(servers) do
-        vim.lsp.config(name, server)
-        vim.lsp.enable(name)
-      end
-    end,
-  },
-
-  {
-    'rcarriga/nvim-dap-ui',
-    config = true,
-    dependencies = {
-      'jay-babu/mason-nvim-dap.nvim',
-      'nvim-neotest/neotest-python',
-      'nvim-neotest/nvim-nio',
-      'theHamsta/nvim-dap-virtual-text',
-    },
-    -- stylua: ignore
-    keys = {
-      { "<leader>du", function() require("dapui").toggle({ }) end, desc = "Dap UI" },
-      { "<leader>de", function() require("dapui").eval() end, desc = "Eval", mode = {"n", "x"} },
-    },
-    opts = {},
-  },
-
-  {
-    'mfussenegger/nvim-dap',
-    lazy = true,
-    dependencies = {
-      'rcarriga/nvim-dap-ui',
-      -- virtual text for the debugger
-      {
-        'theHamsta/nvim-dap-virtual-text',
-        opts = {},
-      },
-    },
-
-    -- stylua: ignore
-    keys = {
-      { '<leader>dB', function() require('dap').set_breakpoint(vim.fn.input 'Breakpoint condition: ') end, desc = 'Breakpoint Condition' },
-      { '<leader>db', function() require('dap').toggle_breakpoint() end, desc = 'Toggle Breakpoint' },
-      { '<leader>dc', function() require('dap').continue() end, desc = 'Run/Continue' },
-      { '<leader>da', function() require('dap').continue { before = vim } end, desc = 'Run with Args' },
-      { '<leader>dC', function() require('dap').run_to_cursor() end, desc = 'Run to Cursor' },
-      { '<leader>dg', function() require('dap').goto_() end, desc = 'Go to Line (No Execute)' },
-      { '<leader>di', function() require('dap').step_into() end, desc = 'Step Into' },
-      { '<leader>dj', function() require('dap').down() end, desc = 'Down' },
-      { '<leader>dk', function() require('dap').up() end, desc = 'Up' },
-      { '<leader>dl', function() require('dap').run_last() end, desc = 'Run Last' },
-      { '<leader>do', function() require('dap').step_out() end, desc = 'Step Out' },
-      { '<leader>dO', function() require('dap').step_over() end, desc = 'Step Over' },
-      { '<leader>dP', function() require('dap').pause() end, desc = 'Pause' },
-      { '<leader>dr', function() require('dap').repl.toggle() end, desc = 'Toggle REPL' },
-      { '<leader>ds', function() require('dap').session() end, desc = 'Session' },
-      { '<leader>dx', function() require('dap').terminate() end, desc = 'Terminate' },
-      { '<leader>dw', function() require('dap.ui.widgets').hover() end, desc = 'Widgets' },
-    },
-  },
-
-  {
-    'jay-babu/mason-nvim-dap.nvim',
-    dependencies = {
-      'mason.nvim',
-      'mfussenegger/nvim-dap',
-    },
-    cmd = { 'DapInstall', 'DapUninstall' },
-    opts = {
-      -- Makes a best effort to setup the various debuggers with
-      -- reasonable debug configurations
-      automatic_installation = true,
-
-      -- You can provide additional configuration to the handlers,
-      -- see mason-nvim-dap README for more information
-      handlers = {},
-
-      -- You'll need to check that you have the required things installed
-      -- online, please don't ask me how to install them :)
-      ensure_installed = {
-        'bash',
-        'codelldb',
-        'python',
-        -- Update this to ensure that you have the debuggers for the langs you want
-      },
-    },
-    -- mason-nvim-dap is loaded when nvim-dap loads
-    config = function() end,
-  },
-
-  {
-    'nvim-neotest/neotest',
-    lazy = false,
-    dependencies = {
-      'nvim-lua/plenary.nvim',
-      'nvim-neotest/nvim-nio',
-      'nvim-treesitter/nvim-treesitter',
-      'nvim-neotest/neotest-python',
-    },
-    -- stylua ignore
-    keys = {
-      { '<leader>dtt', function() require('neotest').run.run() end, desc = 'Run Nearest Test' },
-      { '<leader>dtf', function() require('neotest').run.run(vim.fn.expand '%') end, desc = 'Run Current File' },
-      { '<leader>dta', function() require('neotest').run.run(vim.fn.getcwd()) end, desc = 'Run Test Suite' },
-      { '<leader>dts', function() require('neotest').summary.toggle() end, desc = 'Toggle Summary' },
-      { '<leader>dto', function() require('neotest').output.open { enter = true } end, desc = 'Show Test Output' },
-    },
-    config = function()
-      ---@diagnostic disable-next-line: missing-fields
-      require('neotest').setup {
-        adapters = {
-          require 'neotest-python' {
-            dap = { justMyCode = false },
-            args = { '--log-level', 'DEBUG' },
-            runner = 'pytest',
-            pytest_discover_instances = true,
-          },
-        },
-      }
-    end,
-  },
-
-  { -- Autoformat
-    'stevearc/conform.nvim',
-    event = { 'BufWritePre' },
-    cmd = { 'ConformInfo' },
-    keys = {
-      {
-        '<leader>f',
-        function() require('conform').format { async = true } end,
-        mode = '',
-        desc = '[F]ormat buffer',
-      },
-    },
-    ---@module 'conform'
-    ---@type conform.setupOpts
-    opts = {
-      notify_on_error = false,
-      format_on_save = function(bufnr)
-        -- You can specify filetypes to autoformat on save here:
-        local enabled_filetypes = {
-          -- lua = true,
-          -- python = true,
-        }
-        if enabled_filetypes[vim.bo[bufnr].filetype] then
-          return { timeout_ms = 500 }
-        else
-          return nil
-        end
-      end,
-      default_format_opts = {
-        lsp_format = 'fallback', -- Use external formatters if configured below, otherwise use LSP formatting. Set to `false` to disable LSP formatting entirely.
-      },
-      -- You can also specify external formatters in here.
-      formatters_by_ft = {
-        -- rust = { 'rustfmt' },
-        -- Conform can also run multiple formatters sequentially
-        -- python = { "isort", "black" },
-        --
-        -- You can use 'stop_after_first' to run the first available formatter from the list
-        -- javascript = { "prettierd", "prettier", stop_after_first = true },
-      },
-    },
-  },
-
-  {
-    'lervag/vimtex',
-    lazy = false,
-    init = function()
-      vim.cmd 'filetype plugin indent on'
-      vim.cmd 'syntax enable'
-      vim.g.vimtex_compiler_latexmk = {
-        options = {
-          '-verbose',
-          '-file-line-error',
-          '-synctex=1',
-          '-interaction=nonstopmode',
-          '-shell-escape',
-        },
-      }
-
-      vim.g.vimtex_view_method = 'zathura'
-    end,
-  },
-
-  {
-    'R-nvim/R.nvim',
-    lazy = false,
-    version = '~0.99.0',
-    opts = {
-      R_args = { '--quiet', '--no-save' },
-    },
-  },
-
-  { -- Autocompletion
-    'saghen/blink.cmp',
-    event = 'VimEnter',
-    version = '2.*',
-    dependencies = {
-      -- Snippet Engine
-      {
-        'L3MON4D3/LuaSnip',
-        version = '2.*',
-        build = (function()
-          -- Build Step is needed for regex support in snippets.
-          -- This step is not supported in many windows environments.
-          -- Remove the below condition to re-enable on windows.
-          if vim.fn.has 'win32' == 1 or vim.fn.executable 'make' == 0 then return end
-          return 'make install_jsregexp'
-        end)(),
-        dependencies = {
-          {
-            'rafamadriz/friendly-snippets',
-            config = function() require('luasnip.loaders.from_vscode').lazy_load() end,
-          },
-        },
-        opts = {},
-      },
-      {
-        'micangl/cmp-vimtex',
-        dependencies = {
-          {
-            'saghen/blink.compat',
-            version = '*',
-            lazy = true,
-            opts = {},
-          },
-        },
-      },
-      {
-        'saghen/blink.lib',
-      },
-    },
-    build = function()
-      -- build the fuzzy matcher, wait up to 60 seconds
-      -- you can use `gb` in `:Lazy` to rebuild the plugin as needed
-      require('blink.cmp').build():pwait()
-    end,
-
-    ---@module 'blink.cmp'
-    ---@type blink.cmp.Config
-    opts = {
-      keymap = {
-        -- 'default' (recommended) for mappings similar to built-in completions
-        --   <c-y> to accept ([y]es) the completion.
-        --    This will auto-import if your LSP supports it.
-        --    This will expand snippets if the LSP sent a snippet.
-        -- 'super-tab' for tab to accept
-        -- 'enter' for enter to accept
-        -- 'none' for no mappings
-        --
-        -- For an understanding of why the 'default' preset is recommended,
-        -- you will need to read `:help ins-completion`
-        --
-        -- No, but seriously. Please read `:help ins-completion`, it is really good!
-        --
-        -- All presets have the following mappings:
-        -- <tab>/<s-tab>: move to right/left of your snippet expansion
-        -- <c-space>: Open menu or open docs if already open
-        -- <c-n>/<c-p> or <up>/<down>: Select next/previous item
-        -- <c-e>: Hide menu
-        -- <c-k>: Toggle signature help
-        --
-        -- See :h blink-cmp-config-keymap for defining your own keymap
-        preset = 'super-tab',
-
-        -- For more advanced Luasnip keymaps (e.g. selecting choice nodes, expansion) see:
-        --    https://github.com/L3MON4D3/LuaSnip?tab=readme-ov-file#keymaps
-      },
-
-      appearance = {
-        -- 'mono' (default) for 'Nerd Font Mono' or 'normal' for 'Nerd Font'
-        -- Adjusts spacing to ensure icons are aligned
-        nerd_font_variant = 'mono',
-      },
-
-      completion = {
-        -- By default, you may press `<c-space>` to show the documentation.
-        -- Optionally, set `auto_show = true` to show the documentation after a delay.
-        documentation = { auto_show = true, auto_show_delay_ms = 500 },
-        ghost_text = { enabled = true },
-      },
-
-      sources = {
-        default = { 'lsp', 'path', 'snippets', 'buffer', 'vimtex' },
-        providers = {
-          lsp = {
-            name = 'lsp',
-            enabled = true,
-            module = 'blink.cmp.sources.lsp',
-            kind = 'LSP',
-            min_keyword_length = 3,
-            score_offset = 90,
-          },
-          path = {
-            name = 'Path',
-            module = 'blink.cmp.sources.path',
-            score_offset = 25,
-            fallbacks = { 'snippets', 'buffer' },
-            min_keyword_length = 2,
-            opts = {
-              trailing_slash = false,
-              label_trailing_slash = true,
-              get_cwd = function(context) return vim.fn.expand(('#%d:p:h'):format(context.bufnr)) end,
-              show_hidden_files_by_default = true,
-            },
-          },
-          buffer = {
-            name = 'Buffer',
-            enabled = true,
-            max_items = 3,
-            module = 'blink.cmp.sources.buffer',
-            min_keyword_length = 2,
-            score_offset = 15, -- the higher the number, the higher the priority
-          },
-          snippets = {
-            name = 'snippets',
-            enabled = true,
-            max_items = 15,
-            min_keyword_length = 2,
-            module = 'blink.cmp.sources.snippets',
-            score_offset = 85, -- the higher the number, the higher the priority
-          },
-          vimtex = {
-            name = 'vimtex',
-            min_keyword_length = 2,
-            module = 'blink.compat.source',
-            score_offset = 80,
-          },
-        },
-      },
-
-      snippets = { preset = 'luasnip' },
-
-      -- Blink.cmp includes an optional, recommended rust fuzzy matcher,
-      -- which automatically downloads a prebuilt binary when enabled.
-      --
-      -- By default, we use the Lua implementation instead, but you may enable
-      -- the rust implementation via `'prefer_rust_with_warning'`
-      --
-      -- See :h blink-cmp-config-fuzzy for more information
-      fuzzy = { implementation = 'prefer_rust_with_warning' },
-
-      -- Shows a signature help window while you type arguments for a function
-      signature = { enabled = true },
-    },
-  },
-
-  { -- You can easily change to a different colorscheme.
-    -- Change the name of the colorscheme plugin below, and then
-    -- change the command in the config to whatever the name of that colorscheme is.
-    --
-    -- If you want to see what colorschemes are already installed, you can use `:Telescope colorscheme`.
-    'catppuccin/nvim',
-    priority = 1000, -- Make sure to load this before all the other start plugins.
-    config = function()
-      ---@diagnostic disable-next-line: missing-fields
-      require('catppuccin').setup {
-        flavour = 'mocha',
-        dim_inactive = {
-          enabled = true,
-          shade = 'dark',
-          percentage = 0.15,
-        },
-        styles = {
-          comments = { 'italic' },
-          conditionals = { 'italic' },
-          loops = {},
-          functions = {},
-          keywords = {},
-          strings = {},
-          variables = {},
-          numbers = {},
-          booleans = {},
-          properties = {},
-          types = {},
-          operators = {},
-          miscs = {},
-        },
-        auto_integrations = true,
-      }
-
-      vim.cmd.colorscheme 'catppuccin-nvim'
-    end,
-  },
+  vim.cmd.colorscheme 'catppuccin-nvim'
 
   -- Highlight todo, notes, etc in comments
-  {
-    'folke/todo-comments.nvim',
-    event = 'VimEnter',
-    dependencies = { 'nvim-lua/plenary.nvim' },
-    ---@module 'todo-comments'
-    ---@type TodoOptions
-    ---@diagnostic disable-next-line: missing-fields
-    opts = { signs = true },
-  },
+  vim.pack.add { gh 'folke/todo-comments.nvim' }
+  require('todo-comments').setup {
+    { signs = true },
+  }
 
-  { -- Collection of various small independent plugins/modules
-    'nvim-mini/mini.nvim',
-    config = function()
-      -- Better Around/Inside textobjects
-      --
-      -- Examples:
-      --  - va)  - [V]isually select [A]round [)]paren
-      --  - yinq - [Y]ank [I]nside [I]next [Q]uote
-      --  - ci'  - [C]hange [I]nside [']quote
-      require('mini.ai').setup {
-        -- NOTE: Avoid conflicts with the built-in incremental selection mappings on Neovim>=0.12 (see `:help treesitter-incremental-selection`)
-        mappings = {
-          around_next = 'aa',
-          inside_next = 'ii',
-        },
-        n_lines = 500,
-      }
+  -- Collection of various small independent plugins/modules
+  vim.pack.add { gh 'nvim-mini/mini.nvim' }
 
-      -- Add/delete/replace surroundings (brackets, quotes, etc.)
-      --
-      -- - saiw) - [S]urround [A]dd [I]nner [W]ord [)]Paren
-      -- - sd'   - [S]urround [D]elete [']quotes
-      -- - sr)'  - [S]urround [R]eplace [)] [']
-      require('mini.surround').setup()
+  if vim.g.have_nerd_font then
+    require('mini.icons').setup()
+    -- Used for backwards compatibility with plugins that require `nvim-web-devicons` (e.g. telescope.nvim)
+    MiniIcons.mock_nvim_web_devicons()
+  end
 
-      -- Simple and easy statusline.
-      --  You could remove this setup call if you don't like it,
-      --  and try some other statusline plugin
-      local statusline = require 'mini.statusline'
-      -- set use_icons to true if you have a Nerd Font
-      statusline.setup { use_icons = vim.g.have_nerd_font }
+  require('mini.ai').setup {
+    -- NOTE: Avoid conflicts with the built-in incremental selection mappings on Neovim>=0.12 (see `:help treesitter-incremental-selection`)
+    mappings = {
+      around_next = 'aa',
+      inside_next = 'ii',
+    },
+    n_lines = 500,
+  }
 
-      -- You can configure sections in the statusline by overriding their
-      -- default behavior. For example, here we set the section for
-      -- cursor location to LINE:COLUMN
-      ---@diagnostic disable-next-line: duplicate-set-field
-      statusline.section_location = function() return '%2l:%-2v' end
+  -- Add/delete/replace surroundings (brackets, quotes, etc.)
+  --
+  -- - saiw) - [S]urround [A]dd [I]nner [W]ord [)]Paren
+  -- - sd'   - [S]urround [D]elete [']quotes
+  -- - sr)'  - [S]urround [R]eplace [)] [']
+  require('mini.surround').setup()
 
-      -- ... and there is more!
-      --  Check out: https://github.com/nvim-mini/mini.nvim
+  -- Simple and easy statusline.
+  --  You could remove this setup call if you don't like it,
+  --  and try some other statusline plugin
+  local statusline = require 'mini.statusline'
+  -- set use_icons to true if you have a Nerd Font
+  statusline.setup { use_icons = vim.g.have_nerd_font }
+
+  -- You can configure sections in the statusline by overriding their
+  -- default behavior. For example, here we set the section for
+  -- cursor location to LINE:COLUMN
+  ---@diagnostic disable-next-line: duplicate-set-field
+  statusline.section_location = function() return '%2l:%-2v' end
+
+  -- ... and there is more!
+  --  Check out: https://github.com/nvim-mini/mini.nvim
+end
+-- NOTE: Plugins can specify dependencies.
+--
+-- The dependencies are proper plugin specifications as well - anything
+-- you do for a plugin at the top level, you can do for a dependency.
+--
+-- Use the `dependencies` key to specify the dependencies of a particular plugin
+
+do
+  -- Fuzzy Finder (files, lsp, etc)
+  ---@type (string | vim.pack.Spec)[]
+  local telescope_plugins = {
+    gh 'nvim-lua/plenary.nvim',
+    gh 'nvim-telescope/telescope.nvim',
+    gh 'nvim-telescope/telescope-ui-select.nvim',
+  }
+  if vim.fn.executable 'make' == 1 then table.insert(telescope_plugins, gh 'nvim-telescope/telescope-fzf-native.nvim') end
+
+  -- NOTE: You can install multiple plugins at once
+  vim.pack.add(telescope_plugins)
+
+  -- See `:help telescope` and `:help telescope.setup()`
+  require('telescope').setup {
+    -- You can put your default mappings / updates / etc. in here
+    --  All the info you're looking for is in `:help telescope.setup()`
+    --
+    -- defaults = {
+    --   mappings = {
+    --     i = { ['<c-enter>'] = 'to_fuzzy_refine' },
+    --   },
+    -- },
+    -- pickers = {}
+    extensions = {
+      ['ui-select'] = { require('telescope.themes').get_dropdown() },
+    },
+  }
+
+  -- Enable Telescope extensions if they are installed
+  pcall(require('telescope').load_extension, 'fzf')
+  pcall(require('telescope').load_extension, 'ui-select')
+
+  -- See `:help telescope.builtin`
+  local builtin = require 'telescope.builtin'
+  vim.keymap.set('n', '<leader>sh', builtin.help_tags, { desc = '[S]earch [H]elp' })
+  vim.keymap.set('n', '<leader>sk', builtin.keymaps, { desc = '[S]earch [K]eymaps' })
+  vim.keymap.set('n', '<leader>sf', builtin.find_files, { desc = '[S]earch [F]iles' })
+  vim.keymap.set('n', '<leader>ss', builtin.builtin, { desc = '[S]earch [S]elect Telescope' })
+  vim.keymap.set({ 'n', 'v' }, '<leader>sw', builtin.grep_string, { desc = '[S]earch current [W]ord' })
+  vim.keymap.set('n', '<leader>sg', builtin.live_grep, { desc = '[S]earch by [G]rep' })
+  vim.keymap.set('n', '<leader>sd', builtin.diagnostics, { desc = '[S]earch [D]iagnostics' })
+  vim.keymap.set('n', '<leader>sr', builtin.resume, { desc = '[S]earch [R]esume' })
+  vim.keymap.set('n', '<leader>s.', builtin.oldfiles, { desc = '[S]earch Recent Files ("." for repeat)' })
+  vim.keymap.set('n', '<leader>sc', builtin.commands, { desc = '[S]earch [C]ommands' })
+  vim.keymap.set('n', '<leader><leader>', builtin.buffers, { desc = '[ ] Find existing buffers' })
+
+  -- Add Telescope-based LSP pickers when an LSP attaches to a buffer.
+  -- If you later switch picker plugins, this is where to update these mappings.
+  vim.api.nvim_create_autocmd('LspAttach', {
+    group = vim.api.nvim_create_augroup('telescope-lsp-attach', { clear = true }),
+    callback = function(event)
+      local buf = event.buf
+
+      -- Find references for the word under your cursor.
+      vim.keymap.set('n', 'grr', builtin.lsp_references, { buffer = buf, desc = '[G]oto [R]eferences' })
+
+      -- Jump to the implementation of the word under your cursor.
+      -- Useful when your language has ways of declaring types without an actual implementation.
+      vim.keymap.set('n', 'gri', builtin.lsp_implementations, { buffer = buf, desc = '[G]oto [I]mplementation' })
+
+      -- Jump to the definition of the word under your cursor.
+      -- This is where a variable was first declared, or where a function is defined, etc.
+      -- To jump back, press <C-t>.
+      vim.keymap.set('n', 'grd', builtin.lsp_definitions, { buffer = buf, desc = '[G]oto [D]efinition' })
+
+      -- Fuzzy find all the symbols in your current document.
+      -- Symbols are things like variables, functions, types, etc.
+      vim.keymap.set('n', 'gO', builtin.lsp_document_symbols, { buffer = buf, desc = 'Open Document Symbols' })
+
+      -- Fuzzy find all the symbols in your current workspace.
+      -- Similar to document symbols, except searches over your entire project.
+      vim.keymap.set('n', 'gW', builtin.lsp_dynamic_workspace_symbols, { buffer = buf, desc = 'Open Workspace Symbols' })
+
+      -- Jump to the type of the word under your cursor.
+      -- Useful when you're not sure what type a variable is and you want to see
+      -- the definition of its *type*, not where it was *defined*.
+      vim.keymap.set('n', 'grt', builtin.lsp_type_definitions, { buffer = buf, desc = '[G]oto [T]ype Definition' })
     end,
-  },
+  })
 
-  { -- Highlight, edit, and navigate code
-    'nvim-treesitter/nvim-treesitter',
-    lazy = false,
-    build = ':TSUpdate',
-    branch = 'main',
-    -- [[ Configure Treesitter ]] See `:help nvim-treesitter-intro`
-    config = function()
-      -- ensure basic parser are installed
-      local parsers = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc' }
-      require('nvim-treesitter').install(parsers)
+  -- Override default behavior and theme when searching
+  vim.keymap.set('n', '<leader>/', function()
+    -- You can pass additional configuration to Telescope to change the theme, layout, etc.
+    builtin.current_buffer_fuzzy_find(require('telescope.themes').get_dropdown {
+      winblend = 10,
+      previewer = false,
+    })
+  end, { desc = '[/] Fuzzily search in current buffer' })
 
-      ---@param buf integer
-      ---@param language string
-      local function treesitter_try_attach(buf, language)
-        -- check if parser exists and load it
-        if not vim.treesitter.language.add(language) then return end
+  -- It's also possible to pass additional configuration options.
+  --  See `:help telescope.builtin.live_grep()` for information about particular keys
+  vim.keymap.set(
+    'n',
+    '<leader>s/',
+    function()
+      builtin.live_grep {
+        grep_open_files = true,
+        prompt_title = 'Live Grep in Open Files',
+      }
+    end,
+    { desc = '[S]earch [/] in Open Files' }
+  )
 
-        -- enables syntax highlighting and other treesitter features
-        -- Fix problems with VimTeX highlighting
-        if language ~= 'latex' then vim.treesitter.start(buf, language) end
+  -- Shortcut for searching your Neovim configuration files
+  vim.keymap.set('n', '<leader>sn', function() builtin.find_files { cwd = vim.fn.stdpath 'config', follow = true } end, { desc = '[S]earch [N]eovim files' })
+end
 
-        -- enables treesitter based folds
-        -- for more info on folds see `:help folds`
-        -- vim.wo.foldexpr = 'v:lua.vim.treesitter.foldexpr()'
-        -- vim.wo.foldmethod = 'expr'
+do
+  -- LSP Plugins
 
-        -- check if treesitter indentation is available for this language, and if so enable it
-        -- in case there is no indent query, the indentexpr will fallback to the vim's built in one
-        local has_indent_query = vim.treesitter.query.get(language, 'indents') ~= nil
+  -- Brief aside: **What is LSP?**
+  --
+  -- LSP is an initialism you've probably heard, but might not understand what it is.
+  --
+  -- LSP stands for Language Server Protocol. It's a protocol that helps editors
+  -- and language tooling communicate in a standardized fashion.
+  --
+  -- In general, you have a "server" which is some tool built to understand a particular
+  -- language (such as `gopls`, `lua_ls`, `rust_analyzer`, etc.). These Language Servers
+  -- (sometimes called LSP servers, but that's kind of like ATM Machine) are standalone
+  -- processes that communicate with some "client" - in this case, Neovim!
+  --
+  -- LSP provides Neovim with features like:
+  --  - Go to definition
+  --  - Find references
+  --  - Autocompletion
+  --  - Symbol Search
+  --  - and more!
+  --
+  -- Thus, Language Servers are external tools that must be installed separately from
+  -- Neovim. This is where `mason` and related plugins come into play.
+  --
+  -- If you're wondering about lsp vs treesitter, you can check out the wonderfully
+  -- and elegantly composed help section, `:help lsp-vs-treesitter`
 
-        -- enables treesitter based indentation
-        if has_indent_query then vim.bo.indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()" end
+  -- Useful status updates for LSP.
+  vim.pack.add { gh 'j-hui/fidget.nvim' }
+  require('fidget').setup {}
+
+  --  This function gets run when an LSP attaches to a particular buffer.
+  --    That is to say, every time a new file is opened that is associated with
+  --    an lsp (for example, opening `main.rs` is associated with `rust_analyzer`) this
+  --    function will be executed to configure the current buffer
+  vim.api.nvim_create_autocmd('LspAttach', {
+    group = vim.api.nvim_create_augroup('kickstart-lsp-attach', { clear = true }),
+    callback = function(event)
+      -- NOTE: Remember that Lua is a real programming language, and as such it is possible
+      -- to define small helper and utility functions so you don't have to repeat yourself.
+      --
+      -- In this case, we create a function that lets us more easily define mappings specific
+      -- for LSP related items. It sets the mode, buffer and description for us each time.
+      local map = function(keys, func, desc, mode)
+        mode = mode or 'n'
+        vim.keymap.set(mode, keys, func, { buffer = event.buf, desc = 'LSP: ' .. desc })
       end
 
-      local available_parsers = require('nvim-treesitter').get_available()
-      vim.api.nvim_create_autocmd('FileType', {
-        callback = function(args)
-          local buf, filetype = args.buf, args.match
+      -- Rename the variable under your cursor.
+      --  Most Language Servers support renaming across files, etc.
+      map('grn', vim.lsp.buf.rename, '[R]e[n]ame')
 
-          local language = vim.treesitter.language.get_lang(filetype)
-          if not language then return end
+      -- Execute a code action, usually your cursor needs to be on top of an error
+      -- or a suggestion from your LSP for this to activate.
+      map('gra', vim.lsp.buf.code_action, '[G]oto Code [A]ction', { 'n', 'x' })
 
-          local installed_parsers = require('nvim-treesitter').get_installed 'parsers'
+      -- WARN: This is not Goto Definition, this is Goto Declaration.
+      --  For example, in C this would take you to the header.
+      map('grD', vim.lsp.buf.declaration, '[G]oto [D]eclaration')
 
-          if vim.tbl_contains(installed_parsers, language) then
-            -- enable the parser if it is installed
-            treesitter_try_attach(buf, language)
-          elseif vim.tbl_contains(available_parsers, language) then
-            -- if a parser is available in `nvim-treesitter` auto install it, and enable it after the installation is done
-            require('nvim-treesitter').install(language):await(function() treesitter_try_attach(buf, language) end)
-          else
-            -- try to enable treesitter features in case the parser exists but is not available from `nvim-treesitter`
-            treesitter_try_attach(buf, language)
-          end
-        end,
-      })
+      -- The following two autocommands are used to highlight references of the
+      -- word under your cursor when your cursor rests there for a little while.
+      --    See `:help CursorHold` for information about when this is executed
+      --
+      -- When you move your cursor, the highlights will be cleared (the second autocommand).
+      local client = vim.lsp.get_client_by_id(event.data.client_id)
+      if client and client:supports_method('textDocument/documentHighlight', event.buf) then
+        local highlight_augroup = vim.api.nvim_create_augroup('kickstart-lsp-highlight', { clear = false })
+        vim.api.nvim_create_autocmd({ 'CursorHold', 'CursorHoldI' }, {
+          buffer = event.buf,
+          group = highlight_augroup,
+          callback = vim.lsp.buf.document_highlight,
+        })
+
+        vim.api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI' }, {
+          buffer = event.buf,
+          group = highlight_augroup,
+          callback = vim.lsp.buf.clear_references,
+        })
+
+        vim.api.nvim_create_autocmd('LspDetach', {
+          group = vim.api.nvim_create_augroup('kickstart-lsp-detach', { clear = true }),
+          callback = function(event2)
+            vim.lsp.buf.clear_references()
+            vim.api.nvim_clear_autocmds { group = 'kickstart-lsp-highlight', buffer = event2.buf }
+          end,
+        })
+      end
+
+      -- The following code creates a keymap to toggle inlay hints in your
+      -- code, if the language server you are using supports them
+      --
+      -- This may be unwanted, since they displace some of your code
+      if client and client:supports_method('textDocument/inlayHint', event.buf) then
+        map('<leader>th', function() vim.lsp.inlay_hint.enable(not vim.lsp.inlay_hint.is_enabled { bufnr = event.buf }) end, '[T]oggle Inlay [H]ints')
+      end
     end,
-  },
+  })
+
+  -- Package for handling the dictionary for ltex.
+  vim.pack.add {{ src = gh'barreiroleo/ltex-extra.nvim', name = 'ltex_extra' }}
+
+  -- Enable the following language servers
+  --  Feel free to add/remove any LSPs that you want here. They will automatically be installed.
+  --  See `:help lsp-config` for information about keys and how to configure
+  ---@type table<string, vim.lsp.Config>
+  local servers = {
+    clangd = {},
+    -- gopls = {},
+    basedpyright = {
+      settings = {
+        basedpyright = {
+          analysis = {
+            typeCheckingMode = 'recommended',
+            diagnosticMode = 'workspace',
+            inlayHints = {
+              callArgumentNames = true,
+            },
+          },
+        },
+      },
+    },
+    rust_analyzer = {},
+    ruff = {
+      settings = {
+        lineLength = 120,
+        organizeImports = true,
+        showSyntaxErrors = true,
+        logLevel = 'info',
+        fixAll = true,
+        codeAction = {
+          lint = {
+            enable = true,
+            preview = true,
+          },
+        },
+      },
+    },
+    -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
+    --
+    -- Some languages (like typescript) have entire language plugins that can be useful:
+    --    https://github.com/pmizio/typescript-tools.nvim
+    --
+    -- But for many setups, the LSP (`ts_ls`) will work just fine
+    -- ts_ls = {},
+    --
+    ltex_plus = {
+      on_attach = function(client, bufnr)
+        -- rest of your on_attach process.
+        require('ltex_extra').setup {
+          load_langs = { 'en-AU' },
+          init_check = true,
+          path = '.ltex',
+          log_level = 'none',
+          server_opts = nil,
+        }
+      end,
+      settings = {
+        underline = true,
+        ltex = {
+          language = 'en-AU',
+          additionalRules = {
+            enablePickyRules = true,
+          },
+          enabledRules = {
+            ['en-AU'] = {
+              'IT_IS_OBVIOUS',
+              'READABILITY_RULE_SIMPLE',
+              'READABILITY_RULE_DIFFICULT',
+              'WIKIPEDIA_CONTRACTIONS',
+            },
+          },
+          enabled = {
+            'asciidoc',
+            'bib',
+            'context',
+            'gitcommit',
+            'html',
+            'markdown',
+            'org',
+            'pandoc',
+            'plaintex',
+            'quarto',
+            'mail',
+            'mdx',
+            'rmd',
+            'rnoweb',
+            'rst',
+            'tex',
+            'latex',
+            'text',
+            'typst',
+            'xhtml',
+          },
+          completionEnabled = true,
+          latex = {
+            environments = {
+              ['itemize'] = 'ignore',
+              ['minted'] = 'ignore',
+              ['table'] = 'ignore',
+              ['figure'] = 'ignore',
+            },
+            commands = {},
+          },
+        },
+      },
+    },
+
+    stylua = {}, -- Used to format Lua code
+
+    -- Special Lua Config, as recommended by neovim help docs
+    lua_ls = {
+      on_init = function(client)
+        client.server_capabilities.documentFormattingProvider = false -- Disable formatting (formatting is done by stylua)
+
+        if client.workspace_folders then
+          local path = client.workspace_folders[1].name
+          if path ~= vim.fn.stdpath 'config' and (vim.uv.fs_stat(path .. '/.luarc.json') or vim.uv.fs_stat(path .. '/.luarc.jsonc')) then return end
+        end
+
+        local current_settings = client.config.settings --[[@as lspconfig.settings.lua_ls]]
+        client.config.settings.Lua = vim.tbl_deep_extend('force', current_settings.Lua, {
+          runtime = {
+            version = 'LuaJIT',
+            path = { 'lua/?.lua', 'lua/?/init.lua' },
+          },
+          workspace = {
+            checkThirdParty = false,
+            -- NOTE: this is a lot slower and will cause issues when working on your own configuration.
+            --  See https://github.com/neovim/nvim-lspconfig/issues/3189
+            library = vim.api.nvim_get_runtime_file('', true),
+          },
+        })
+      end,
+      ---@type lspconfig.settings.lua_ls
+      settings = {
+        Lua = {
+          format = { enable = false }, -- Disable formatting (formatting is done by stylua)
+        },
+      },
+    },
+  }
+
+  vim.pack.add {
+    gh 'neovim/nvim-lspconfig',
+    gh 'mason-org/mason.nvim',
+    gh 'mason-org/mason-lspconfig.nvim',
+    gh 'WhoIsSethDaniel/mason-tool-installer.nvim',
+  }
+
+  -- Automatically install LSPs and related tools to stdpath for Neovim
+  require('mason').setup {}
+
+  -- Translates between nvim-lspconfig server names and mason.nvim package names (e.g. lua_ls <-> lua-language-server)
+  require('mason-lspconfig').setup {
+    automatic_enable = false, -- Change this to true if you want to automatically enable servers that are installed manually (e.g. via :Mason / :MasonInstall)
+  }
+
+  -- Ensure the servers and tools above are installed
+  --
+  -- To check the current status of installed tools and/or manually install
+  -- other tools, you can run
+  --    :Mason
+  --
+  -- You can press `g?` for help in this menu.
+  local ensure_installed = vim.tbl_keys(servers or {})
+  vim.list_extend(ensure_installed, {
+    -- You can add other tools here that you want Mason to install
+  })
+
+  require('mason-tool-installer').setup { ensure_installed = ensure_installed }
+
+  for name, server in pairs(servers) do
+    vim.lsp.config(name, server)
+    vim.lsp.enable(name)
+  end
+end
+
+do
+  -- Autoformat
+  vim.pack.add { gh 'stevearc/conform.nvim' }
+  require('conform').setup {
+    notify_on_error = false,
+    format_on_save = function(bufnr)
+      -- You can specify filetypes to autoformat on save here:
+      local enabled_filetypes = {
+        -- lua = true,
+        -- python = true,
+      }
+      if enabled_filetypes[vim.bo[bufnr].filetype] then
+        return { timeout_ms = 500 }
+      else
+        return nil
+      end
+    end,
+    default_format_opts = {
+      lsp_format = 'fallback', -- Use external formatters if configured below, otherwise use LSP formatting. Set to `false` to disable LSP formatting entirely.
+    },
+    -- You can also specify external formatters in here.
+    formatters_by_ft = {
+      -- rust = { 'rustfmt' },
+      -- Conform can also run multiple formatters sequentially
+      -- python = { "isort", "black" },
+      --
+      -- You can use 'stop_after_first' to run the first available formatter from the list
+      -- javascript = { "prettierd", "prettier", stop_after_first = true },
+    },
+  }
+
+  vim.keymap.set({ 'n', 'v' }, '<leader>f', function() require('conform').format { async = true } end, { desc = '[F]ormat buffer' })
+end
+
+do
+  -- Autocompletion
+  -- LuaSnip
+  vim.pack.add { { src = gh 'L3MON4D3/LuaSnip', version = vim.version.range '2.*' } }
+  require('luasnip').setup {}
+
+  -- friendly-snippets
+  vim.pack.add { gh 'rafamadriz/friendly-snippets' }
+  require('luasnip.loaders.from_vscode').lazy_load()
+
+  -- blink-cmp
+  vim.pack.add { gh 'saghen/blink.cmp', gh 'saghen/blink.lib', gh 'saghen/blink.compat', gh 'micangl/cmp-vimtex' }
+  require('blink-compat').setup {}
+  local cmp = require 'blink-cmp'
+  cmp.build():pwait()
+  cmp.setup {
+    keymap = {
+      -- 'default' (recommended) for mappings similar to built-in completions
+      --   <c-y> to accept ([y]es) the completion.
+      --    This will auto-import if your LSP supports it.
+      --    This will expand snippets if the LSP sent a snippet.
+      -- 'super-tab' for tab to accept
+      -- 'enter' for enter to accept
+      -- 'none' for no mappings
+      --
+      -- For an understanding of why the 'default' preset is recommended,
+      -- you will need to read `:help ins-completion`
+      --
+      -- No, but seriously. Please read `:help ins-completion`, it is really good!
+      --
+      -- All presets have the following mappings:
+      -- <tab>/<s-tab>: move to right/left of your snippet expansion
+      -- <c-space>: Open menu or open docs if already open
+      -- <c-n>/<c-p> or <up>/<down>: Select next/previous item
+      -- <c-e>: Hide menu
+      -- <c-k>: Toggle signature help
+      --
+      -- See :h blink-cmp-config-keymap for defining your own keymap
+      preset = 'super-tab',
+
+      -- For more advanced Luasnip keymaps (e.g. selecting choice nodes, expansion) see:
+      --    https://github.com/L3MON4D3/LuaSnip?tab=readme-ov-file#keymaps
+    },
+
+    appearance = {
+      -- 'mono' (default) for 'Nerd Font Mono' or 'normal' for 'Nerd Font'
+      -- Adjusts spacing to ensure icons are aligned
+      nerd_font_variant = 'mono',
+    },
+
+    completion = {
+      -- By default, you may press `<c-space>` to show the documentation.
+      -- Optionally, set `auto_show = true` to show the documentation after a delay.
+      documentation = { auto_show = true, auto_show_delay_ms = 500, window = { border = 'single' } },
+    },
+
+    sources = {
+      default = { 'lsp', 'path', 'cmdline', 'snippets', 'buffer', 'vimtex' },
+      providers = {
+        snippets = { score_offset = 10 },
+        vimtex = {
+          name = 'vimtex',
+          module = 'blink.compat.source',
+          score_offset = 15,
+        },
+      },
+    },
+
+    snippets = { preset = 'luasnip' },
+
+    -- Blink.cmp includes an optional, recommended rust fuzzy matcher,
+    -- which automatically downloads a prebuilt binary when enabled.
+    --
+    -- By default, we use the Lua implementation instead, but you may enable
+    -- the rust implementation via `'prefer_rust_with_warning'`
+    --
+    -- See :h blink-cmp-config-fuzzy for more information
+    fuzzy = { implementation = 'prefer_rust_with_warning' },
+
+    -- Shows a signature help window while you type arguments for a function
+    signature = { enabled = true },
+  }
+end
+
+do
+  -- Highlight, edit, and navigate code
+  vim.pack.add { { src = gh 'nvim-treesitter/nvim-treesitter', version = 'main' } }
+
+  -- ensure basic parser are installed
+  local parsers = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc' }
+  require('nvim-treesitter').install(parsers)
+
+  ---@param buf integer
+  ---@param language string
+  local function treesitter_try_attach(buf, language)
+    -- check if parser exists and load it
+    if not vim.treesitter.language.add(language) then return end
+
+    -- enables syntax highlighting and other treesitter features
+    -- Fix problems with VimTeX highlighting
+    if language ~= 'latex' then vim.treesitter.start(buf, language) end
+
+    -- enables treesitter based folds
+    -- for more info on folds see `:help folds`
+    -- vim.wo.foldexpr = 'v:lua.vim.treesitter.foldexpr()'
+    -- vim.wo.foldmethod = 'expr'
+
+    -- check if treesitter indentation is available for this language, and if so enable it
+    -- in case there is no indent query, the indentexpr will fallback to the vim's built in one
+    local has_indent_query = vim.treesitter.query.get(language, 'indents') ~= nil
+
+    -- enables treesitter based indentation
+    if has_indent_query then vim.bo.indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()" end
+  end
+
+  local available_parsers = require('nvim-treesitter').get_available()
+  vim.api.nvim_create_autocmd('FileType', {
+    callback = function(args)
+      local buf, filetype = args.buf, args.match
+
+      local language = vim.treesitter.language.get_lang(filetype)
+      if not language then return end
+
+      local installed_parsers = require('nvim-treesitter').get_installed 'parsers'
+
+      if vim.tbl_contains(installed_parsers, language) then
+        -- enable the parser if it is installed
+        treesitter_try_attach(buf, language)
+      elseif vim.tbl_contains(available_parsers, language) then
+        -- if a parser is available in `nvim-treesitter` auto install it, and enable it after the installation is done
+        require('nvim-treesitter').install(language):await(function() treesitter_try_attach(buf, language) end)
+      else
+        -- try to enable treesitter features in case the parser exists but is not available from `nvim-treesitter`
+        treesitter_try_attach(buf, language)
+      end
+    end,
+  })
+end
+
+do
+  vim.pack.add { gh 'lervag/vimtex' }
+  vim.g.vimtex_compiler_latexmk = {
+    options = {
+      '-verbose',
+      '-file-line-error',
+      '-synctex=1',
+      '-interaction=nonstopmode',
+      '-shell-escape',
+    },
+  }
+
+  vim.g.vimtex_view_method = 'zathura'
+
+  vim.pack.add {{ src = gh 'R-nvim/R.nvim', version = 'v1.0.0' }}
+  require('r').setup {
+    R_args = { '--quiet', '--no-save' },
+  }
 
   -- The following comments only work if you have downloaded the kickstart repo, not just copy pasted the
   -- init.lua. If you want these files, they are in the repository, so you can just download them and
@@ -1691,44 +1454,23 @@ require('lazy').setup({
   --  Here are some example plugins that I've included in the Kickstart repository.
   --  Uncomment any of the lines below to enable them (you will need to restart nvim).
   --
-  -- require 'kickstart.plugins.debug',
+  require 'kickstart.plugins.debug'
   -- require 'kickstart.plugins.indent_line',
   -- require 'kickstart.plugins.lint',
   -- require 'kickstart.plugins.autopairs',
   -- require 'kickstart.plugins.neo-tree',
-  require 'kickstart.plugins.gitsigns', -- adds gitsigns recommend keymaps
 
   -- NOTE: The import below can automatically add your own plugins, configuration, etc from `lua/custom/plugins/*.lua`
   --    This is the easiest way to modularize your config.
   --
   --  Uncomment the following line and add your plugins to `lua/custom/plugins/*.lua` to get going.
-  { import = 'custom.plugins' },
+  -- require 'custom.plugins'
   --
   -- For additional information with loading, sourcing and examples see `:help lazy.nvim-🔌-plugin-spec`
   -- Or use telescope!
   -- In normal mode type `<space>sh` then write `lazy.nvim-plugin`
   -- you can continue same window with `<space>sr` which resumes last telescope search
-}, { ---@diagnostic disable-line: missing-fields
-  ui = {
-    -- If you are using a Nerd Font: set icons to an empty table which will use the
-    -- default lazy.nvim defined Nerd Font icons, otherwise define a unicode icons table
-    icons = vim.g.have_nerd_font and {} or {
-      cmd = '⌘',
-      config = '🛠',
-      event = '📅',
-      ft = '📂',
-      init = '⚙',
-      keys = '🗝',
-      plugin = '🔌',
-      runtime = '💻',
-      require = '🌙',
-      source = '📄',
-      start = '🚀',
-      task = '📌',
-      lazy = '💤 ',
-    },
-  },
-})
+end
 
 -- The line beneath this is called `modeline`. See `:help modeline`
 -- vim: ts=2 sts=2 sw=2 et
