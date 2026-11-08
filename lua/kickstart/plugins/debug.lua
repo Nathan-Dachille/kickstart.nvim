@@ -14,7 +14,6 @@ vim.pack.add {
   'https://github.com/nvim-neotest/neotest-python',
   'https://github.com/mason-org/mason.nvim',
   'https://github.com/jay-babu/mason-nvim-dap.nvim',
-  'https://github.com/leoluz/nvim-dap-go',
   'https://github.com/mfussenegger/nvim-dap-python',
 }
 
@@ -44,7 +43,6 @@ require('mason-nvim-dap').setup {
   -- online, please don't ask me how to install them :)
   ensure_installed = {
     -- Update this to ensure that you have the debuggers for the langs you want
-    'delve',
     'python'
   },
 }
@@ -90,13 +88,13 @@ dap.listeners.before.event_terminated['dapui_config'] = dapui.close
 dap.listeners.before.event_exited['dapui_config'] = dapui.close
 
 -- Install golang specific config
-require('dap-go').setup {
-  delve = {
-    -- On Windows delve must be run attached or it crashes.
-    -- See https://github.com/leoluz/nvim-dap-go/blob/main/README.md#configuring
-    detached = vim.fn.has 'win32' == 0,
-  },
-}
+-- require('dap-go').setup {
+--   delve = {
+--     -- On Windows delve must be run attached or it crashes.
+--     -- See https://github.com/leoluz/nvim-dap-go/blob/main/README.md#configuring
+--     detached = vim.fn.has 'win32' == 0,
+--   },
+-- }
 
 -- Install python config
 local dap_python = require('dap-python')
@@ -104,12 +102,15 @@ dap_python.setup("uv")
 
 -- Setup keybinds for running tests
 local neotest = require("neotest")
+---@diagnostic disable-next-line: missing-fields
 neotest.setup {
   adapters = {
     require("neotest-python")({
-      dap = { justMyCode = false },
+      dap = { justMyCode = true,  },
+      runner = "pytest",
+      pytest_discover_instances = true,
     }),
-  }
+  },
 }
 
 vim.keymap.set("n", "<leader>dt", function() neotest.run.run() end, { desc = "Run nearest test" })

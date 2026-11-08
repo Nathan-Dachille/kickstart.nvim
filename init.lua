@@ -64,6 +64,11 @@ vim.o.splitbelow = true
 vim.o.list = true
 vim.opt.listchars = { tab = '» ', trail = '·', nbsp = '␣' }
 
+-- Set Tabwidth:
+vim.o.tabstop = 4
+vim.o.shiftwidth = 4
+vim.o.expandtab = true
+
 -- Preview substitutions live, as you type!
 vim.o.inccommand = 'split'
 
@@ -145,12 +150,24 @@ vim.api.nvim_create_autocmd('TextYankPost', {
 })
 
 -- Set wrap when editing LaTeX.
-local group = vim.api.nvim_create_augroup('LaTeX Wrap', { clear = true })
+local group = vim.api.nvim_create_augroup('LaTeX', { clear = true })
 
 vim.api.nvim_create_autocmd('BufEnter', {
-  pattern = { '*.tex' },
+  pattern = { '*.tex', '*.sty' },
   group = group,
   command = 'setlocal textwidth=100 | setlocal colorcolumn=101 | setlocal wrap',
+})
+
+vim.api.nvim_create_autocmd('BufEnter', {
+  pattern = { '*.tex', '*.sty' },
+  group = group,
+  callback = function()
+    vim.keymap.set('n', '<localleader>c', function() vim.cmd 'VimtexCountWords' end, { desc = 'Vimtex Word [C]ount' })
+    vim.keymap.set('v', '<localleader>c', function()
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<Esc>', true, false, true), 'nx', false)
+      vim.cmd "'<,'>VimtexCountWords"
+    end, { desc = 'Vimtex Word [C]ount' })
+  end,
 })
 
 -- [[ vim.pack ]]
@@ -255,8 +272,7 @@ do
   }
 
   vim.pack.add { gh 'ThePrimeagen/vim-be-good' }
-  require('vim-be-good')
-
+  require 'vim-be-good'
 
   vim.pack.add { gh 'folke/which-key.nvim' }
   require('which-key').setup {
@@ -784,7 +800,7 @@ do
   -- change the command in the config to whatever the name of that colorscheme is.
   --
   -- If you want to see what colorschemes are already installed, you can use `:Telescope colorscheme`.
-  vim.pack.add {{ src = 'https://github.com/catppuccin/nvim', name = 'catppuccin' }}
+  vim.pack.add { { src = 'https://github.com/catppuccin/nvim', name = 'catppuccin' } }
   require('catppuccin').setup {
     flavour = 'mocha',
     dim_inactive = {
@@ -1075,7 +1091,7 @@ do
   })
 
   -- Package for handling the dictionary for ltex.
-  vim.pack.add {{ src = gh'barreiroleo/ltex-extra.nvim', name = 'ltex_extra' }}
+  vim.pack.add { { src = gh 'barreiroleo/ltex-extra.nvim', name = 'ltex_extra' } }
 
   -- Enable the following language servers
   --  Feel free to add/remove any LSPs that you want here. They will automatically be installed.
@@ -1111,6 +1127,11 @@ do
             preview = true,
           },
         },
+      },
+    },
+    r_language_server = {
+      settings = {
+        filetypes = { 'r', 'rmd' },
       },
     },
     -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
@@ -1242,6 +1263,7 @@ do
   -- You can press `g?` for help in this menu.
   local ensure_installed = vim.tbl_keys(servers or {})
   vim.list_extend(ensure_installed, {
+
     -- You can add other tools here that you want Mason to install
   })
 
@@ -1262,7 +1284,8 @@ do
       -- You can specify filetypes to autoformat on save here:
       local enabled_filetypes = {
         -- lua = true,
-        -- python = true,
+        python = true,
+        latex = true,
       }
       if enabled_filetypes[vim.bo[bufnr].filetype] then
         return { timeout_ms = 500 }
@@ -1325,7 +1348,7 @@ do
       -- <c-k>: Toggle signature help
       --
       -- See :h blink-cmp-config-keymap for defining your own keymap
-      preset = 'super-tab',
+      preset = 'default',
 
       -- For more advanced Luasnip keymaps (e.g. selecting choice nodes, expansion) see:
       --    https://github.com/L3MON4D3/LuaSnip?tab=readme-ov-file#keymaps
@@ -1376,7 +1399,7 @@ do
   vim.pack.add { { src = gh 'nvim-treesitter/nvim-treesitter', version = 'main' } }
 
   -- ensure basic parser are installed
-  local parsers = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc' }
+  local parsers = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'r', 'query', 'vim', 'vimdoc', 'csv', 'yaml' }
   require('nvim-treesitter').install(parsers)
 
   ---@param buf integer
@@ -1391,8 +1414,8 @@ do
 
     -- enables treesitter based folds
     -- for more info on folds see `:help folds`
-    -- vim.wo.foldexpr = 'v:lua.vim.treesitter.foldexpr()'
-    -- vim.wo.foldmethod = 'expr'
+    vim.wo.foldexpr = 'v:lua.vim.treesitter.foldexpr()'
+    vim.wo.foldmethod = 'expr'
 
     -- check if treesitter indentation is available for this language, and if so enable it
     -- in case there is no indent query, the indentexpr will fallback to the vim's built in one
@@ -1438,11 +1461,21 @@ do
     },
   }
 
-  vim.g.vimtex_view_method = 'zathura'
+  vim.g.vimtex_view_method = 'mupdf'
 
-  vim.pack.add {{ src = gh 'R-nvim/R.nvim', version = 'v1.0.0' }}
+  vim.pack.add { { src = gh 'R-nvim/R.nvim', version = 'v1.0.0' } }
   require('r').setup {
     R_args = { '--quiet', '--no-save' },
+    auto_start = 'always',
+    hook = {
+      on_filetype = function()
+        -- Set Tabwidth:
+        vim.o.tabstop = 2
+        vim.o.shiftwidth = 2
+        vim.o.expandtab = true
+        vim.api.nvim_buf_set_keymap(0, 'i', '||', '<Plug>RInsertPipe', {})
+      end,
+    },
   }
 
   -- The following comments only work if you have downloaded the kickstart repo, not just copy pasted the
